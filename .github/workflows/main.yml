@@ -2,40 +2,49 @@ name: V1_V2_Long_Range_Radar
 
 on:
   schedule:
-    # 優化：分散時間點，避免固定間隔
-    - cron: '8,23,38,53 * * * *'    # 每15分鐘但偏移8分鐘
-    - cron: '14,29,44,59 * * * *'   # 第二組偏移14分鐘
-  workflow_dispatch:        # 手動點火
+    # 分散執行時間，避免固定間隔
+    - cron: '9,24,39,54 * * * *'    # 每小時的9、24、39、54分執行
+    - cron: '16,31,46,1 * * * *'    # 每小時的16、31、46、1分執行
+  workflow_dispatch:                 # 手動觸發
   push:
-    branches: [ main ]     # 代碼更新時也觸發
+    branches: [ main ]              # 代碼更新時觸發
 
 jobs:
   radar-mission:
     runs-on: ubuntu-latest
-    # 關鍵：設置超時，避免無限運行
-    timeout-minutes: 12
+    # 設置超時，避免無限運行
+    timeout-minutes: 14
     
     steps:
-      - name: 1. 隨機延遲啟動 (防偵測)
-        run: sleep $((RANDOM % 60))  # 隨機等待0-60秒
+      # 步驟1：隨機延遲啟動
+      - name: 1. 隨機延遲啟動
+        run: |
+          echo "🕐 隨機延遲啟動中..."
+          sleep $((RANDOM % 45 + 15))
+          echo "✅ 延遲結束，開始執行"
         
+      # 步驟2：檢出代碼
       - name: 2. 檢出代碼
         uses: actions/checkout@v3
         with:
-          fetch-depth: 1  # 節省流量
-
+          fetch-depth: 1
+        
+      # 步驟3：初始化 Python
       - name: 3. 初始化 Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
           cache: 'pip'
-
+        
+      # 步驟4：安裝組件
       - name: 4. 安裝組件
         run: |
+          echo "📦 安裝必要組件..."
           pip install --upgrade pip
           pip install websocket-client requests
           echo "✅ 組件安裝完成"
-
+        
+      # 步驟5：發送啟動通知
       - name: 5. 發送啟動通知到 Telegram
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
@@ -48,14 +57,16 @@ jobs:
           chat_id = os.getenv('TG_CHAT_ID')
           
           if token and chat_id:
-              now = datetime.datetime.now().strftime('%m/%d %H:%M:%S')
-              message = f'''✅ V1/V2雷達系統啟動成功
+              now = datetime.datetime.now()
+              time_str = now.strftime('%m/%d %H:%M:%S')
               
-              ⏰ 時間: {now}
-              🔄 工作流: ${{ github.workflow }}
-              📍 運行ID: ${{ github.run_id }}
+              message = f'''🚀 <b>V1/V2雷達系統啟動成功</b>
               
-              🚀 開始執行掃描任務...'''
+⏰ 時間: {time_str}
+🔄 工作流: ${{ github.workflow }}
+🔢 運行ID: ${{ github.run_id }}
+              
+💡 系統開始執行掃描任務'''
               
               url = f'https://api.telegram.org/bot{token}/sendMessage'
               data = {
@@ -67,22 +78,25 @@ jobs:
               try:
                   response = requests.post(url, json=data, timeout=10)
                   if response.status_code == 200:
-                      print('📤 Telegram通知發送成功')
+                      print('✅ Telegram通知發送成功')
                   else:
                       print(f'⚠️ 通知發送失敗: {response.status_code}')
               except Exception as e:
                   print(f'⚠️ 發送錯誤: {e}')
           else:
-              print('⚠️ 缺少TG_TOKEN或TG_CHAT_ID環境變量')
+              print('⚠️ 缺少TG_TOKEN或TG_CHAT_ID')
           "
-
-      - name: 6. 執行優化版雷達系統
+        
+      # 步驟6：執行智能雷達系統
+      - name: 6. 執行智能雷達系統
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
         run: |
-          # 創建智能雷達控制器
+          echo "🚀 創建智能雷達系統..."
+          
+          # 創建Python腳本
           cat > smart_radar.py << 'EOF'
           import os
           import time
@@ -91,14 +105,11 @@ jobs:
           import sys
           from datetime import datetime
           
-          # ===== Telegram 通知函數 =====
           def telegram_notify(message):
-              """發送Telegram通知"""
               token = os.getenv('TG_TOKEN')
               chat_id = os.getenv('TG_CHAT_ID')
               
               if not token or not chat_id:
-                  print("⚠️ 缺少Telegram配置")
                   return False
               
               try:
@@ -113,118 +124,126 @@ jobs:
               except:
                   return False
           
-          # ===== 雷達掃描函數 =====
           def radar_scan(scan_id):
-              """執行單次雷達掃描"""
               timestamp = datetime.now().strftime("%H:%M:%S")
-              print(f"[{timestamp}] 🔍 掃描 #{scan_id} 進行中...")
+              print(f"[{timestamp}] 🔍 掃描 #{scan_id}")
               
-              # 這裡放置你的實際雷達邏輯
-              # 例如：websocket連接、數據獲取、分析等
+              # 這裡替換為你的實際邏輯
+              time.sleep(random.randint(2, 5))
               
-              # 模擬掃描工作
-              time.sleep(random.randint(2, 5))  # 隨機工作時間
-              
-              # 偶爾發送狀態更新（每10次掃描一次）
-              if scan_id % 10 == 0:
-                  telegram_notify(f"📊 雷達狀態報告\n已完成 {scan_id} 次掃描")
-              
-              return True
+              # 模擬90%成功率
+              if random.random() < 0.9:
+                  return True
+              else:
+                  return False
           
-          # ===== 主控制循環 =====
           def main_control_loop():
-              """主控制循環 - 防封鎖優化版"""
+              print("=" * 50)
               print("🚀 V1/V2 智能雷達系統啟動")
+              print("=" * 50)
               
               scan_count = 0
+              error_count = 0
               start_time = time.time()
               
               while True:
                   scan_count += 1
                   
-                  # 1. 執行掃描
+                  # 執行掃描
                   success = radar_scan(scan_count)
                   
                   if not success:
-                      telegram_notify("⚠️ 雷達掃描失敗，等待恢復...")
-                      time.sleep(60)  # 失敗後等待1分鐘
-                      continue
+                      error_count += 1
                   
-                  # 2. 智能等待策略（關鍵：防封鎖）
-                  # 基礎等待時間：13-17分鐘隨機
-                  base_wait = random.randint(13, 17) * 60  # 秒
+                  # 每5次掃描發送報告
+                  if scan_count % 5 == 0:
+                      run_hours = (time.time() - start_time) / 3600
+                      report = f'''📊 <b>雷達狀態報告</b>
+                      
+掃描次數: {scan_count}
+運行時間: {run_hours:.1f}小時
+錯誤次數: {error_count}
+狀態: {'正常' if error_count < 3 else '注意'}'''
+                      telegram_notify(report)
                   
-                  # 根據運行時間調整（長時間運行後增加間隔）
-                  run_hours = (time.time() - start_time) / 3600
-                  if run_hours > 6:  # 運行超過6小時
-                      base_wait += random.randint(60, 180)  # 增加1-3分鐘
+                  # 智能等待 (13-17分鐘)
+                  wait_seconds = random.randint(13 * 60, 17 * 60)
+                  wait_minutes = wait_seconds // 60
                   
-                  # 轉換為分鐘顯示
-                  wait_minutes = base_wait // 60
-                  wait_seconds = base_wait % 60
+                  print(f"⏳ 下次掃描: {wait_minutes}分鐘後")
+                  print("-" * 30)
                   
-                  print(f"⏳ 下次掃描: {wait_minutes}分{wait_seconds}秒後")
-                  
-                  # 3. 分批等待（避免單次長時間sleep）
-                  for i in range(base_wait):
-                      if i % 300 == 0 and i > 0:  # 每5分鐘打印一次
+                  # 等待
+                  for i in range(wait_seconds):
+                      if i % 300 == 0 and i > 0:
                           print(f"  等待中... {i//60}分鐘")
                       time.sleep(1)
           
-          # ===== 程序入口 =====
           if __name__ == "__main__":
-              try:
-                  # 啟動通知
-                  telegram_notify("🟢 <b>V1/V2雷達系統啟動</b>\n開始24/7監控服務")
-                  
-                  # 進入主循環
-                  main_control_loop()
-                  
-              except KeyboardInterrupt:
-                  telegram_notify("🟡 <b>雷達系統手動停止</b>")
-                  print("\n👋 程式結束")
-                  
-              except Exception as e:
-                  error_msg = f"🔴 <b>雷達系統異常</b>\n錯誤: {str(e)}"
-                  telegram_notify(error_msg)
-                  print(f"❌ 錯誤發生: {e}")
-                  sys.exit(1)
+              max_retries = 3
+              retry_count = 0
+              
+              # 啟動通知
+              telegram_notify("🚀 <b>V1/V2雷達系統啟動</b>")
+              
+              while retry_count < max_retries:
+                  try:
+                      if retry_count > 0:
+                          print(f"🔄 第 {retry_count} 次重試")
+                          telegram_notify(f"🔄 <b>第{retry_count}次重試</b>")
+                      
+                      main_control_loop()
+                      
+                  except KeyboardInterrupt:
+                      telegram_notify("⏹️ <b>手動停止</b>")
+                      print("👋 程式結束")
+                      break
+                      
+                  except Exception as e:
+                      retry_count += 1
+                      print(f"❌ 錯誤: {e}")
+                      
+                      if retry_count < max_retries:
+                          telegram_notify(f"🔄 <b>錯誤重試 {retry_count}/{max_retries}</b>")
+                          time.sleep(30)
+                      else:
+                          telegram_notify(f"💥 <b>系統失敗</b>\n錯誤: {type(e).__name__}")
+                          sys.exit(1)
           EOF
           
-          echo "🚀 開始執行智能雷達系統..."
+          echo "✅ 腳本創建完成"
+          echo "🚀 開始執行..."
           python3 smart_radar.py
-
-      - name: 7. 工作流狀態報告
+        
+      # 步驟7：完成通知
+      - name: 7. 工作流完成通知
         if: always()
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: |
           python3 -c "
-          import os, requests, datetime
+          import os, requests
           
           token = os.getenv('TG_TOKEN')
           chat_id = os.getenv('TG_CHAT_ID')
           
           if token and chat_id:
               status = '${{ job.status }}'
-              run_time = '${{ job.container.service_time }}'
-              now = datetime.datetime.now().strftime('%m/%d %H:%M')
               
-              status_emoji = {
+              icons = {
                   'success': '✅',
                   'failure': '❌',
                   'cancelled': '⚠️'
-              }.get(status, '🔸')
+              }
               
-              message = f'''{status_emoji} <b>工作流完成報告</b>
+              icon = icons.get(status, '🔸')
               
-              狀態: {status}
-              工作流: ${{ github.workflow }}
-              運行ID: ${{ github.run_id }}
-              時間: {now}
+              message = f'''{icon} <b>工作流完成</b>
               
-              📊 本次執行結束'''
+狀態: {status}
+工作流: ${{ github.workflow }}
+運行ID: ${{ github.run_id }}'''
               
               url = f'https://api.telegram.org/bot{token}/sendMessage'
               requests.post(url, json={
