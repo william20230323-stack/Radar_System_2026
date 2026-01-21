@@ -1,9 +1,9 @@
-name: Triple_Radar_Full_Power
+name: V1_V2_Long_Range_Radar
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # 每 5 分鐘自動巡航
-  workflow_dispatch:      # 手動點火按鈕
+    - cron: '*/15 * * * *'  # 每 15 分鐘自動點火重啟
+  workflow_dispatch:        # 手動點火
 
 jobs:
   radar-mission:
@@ -17,18 +17,14 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: 3. 安裝必要組件
+      - name: 3. 安裝組件
         run: pip install websocket-client requests
 
-      - name: 4. 武器庫 A-F 全面點火
+      - name: 4. 點火 V1/V2 實時雷達
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
         run: |
-          # 啟動 V1/V2 實時流雷達 (背景模式)
-          python radar_commander.py &
-          
-          sleep 5
-          
-    
+          # 專注執行 V1/V2，不執行 V3
+          python radar_commander.py
