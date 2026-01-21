@@ -1,39 +1,56 @@
 import websocket, json, time, requests, os
 from config import RADAR_TOKEN, RADAR_CHAT_ID, SYMBOL
 
-class LiveRadar:
+class UnifiedRadar:
     def __init__(self):
+        self.prices = []
+        self.reset_metrics()
         self.end_time = time.time() + 250 # 運行 4 分鐘
-        self.buy_vol = 0.0
-        self.sell_vol = 0.0
-        self.last_price = 0.0
 
-    def send_tg(self, msg):
+    def reset_metrics(self):
+        self.start_time = time.time()
+        self.open_price = 0.0
+        self.buy_vol, self.sell_vol = 0.0, 0.0
+        self.is_alerted = False
+
+    def send_msg(self, text):
         url = f"https://api.telegram.org/bot{RADAR_TOKEN}/sendMessage"
-        requests.post(url, json={"chat_id": RADAR_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
+        try:
+            requests.post(url, json={"chat_id": RADAR_CHAT_ID, "text": text, "parse_mode": "Markdown"}, timeout=5)
+            self.is_alerted = True
+        except: pass
 
     def on_message(self, ws, message):
-        if time.time() > self.end_time: ws.close(); return
-        
-        data = json.loads(message)
-        price = float(data['p'])
-        amount = price * float(data['q'])
+        if time.time() > self.end_time:
+            ws.close()
+            return
+        d = json.loads(message)
+        p, v = float(d['p']), float(d['p']) * float(d['q'])
+        if self.open_price == 0: self.open_price = p
+        if d['m']: self.sell_vol += v 
+        else: self.buy_vol += v
 
-        if data['m']: self.sell_vol += amount  # 主動拋售
-        else: self.buy_vol += amount           # 主動掃貨
-
-        # 每 60 秒計算一次背離
-        if int(time.time()) % 60 == 0:
+        elapsed = time.time() - self.start_time
+        if 55 <= elapsed < 60 and not self.is_alerted:
             ratio = self.buy_vol / self.sell_vol if self.sell_vol > 0 else 1.0
-            if ratio > 1.8:
-                self.send_tg(f"⚠️ *【量價預警】*\n標的：`{SYMBOL}`\n🔥 買盤強勁 (Ratio: {ratio:.2f})\n價格下跌但有人大量吃貨！")
-            elif ratio < 0.6:
-                self.send_tg(f"🚨 *【賣壓預警】*\n標的：`{SYMBOL}`\n💸 賣盤沉重 (Ratio: {ratio:.2f})\n上漲無力，主力正在撤退！")
-            self.buy_vol, self.sell_vol = 0.0, 0.0 # 重置
+            chg = (p - self.open_price) / self.open_price * 100
+            
+            # V1: 量價衝突
+            if chg < -0.15 and ratio > 1.8:
+                self.send_msg(f"⚠️ *【隱性支撐】*\n`{SYMBOL}` 下跌但買盤強勁！\n比例: `{ratio:.2f}`")
+            elif chg > 0.15 and ratio < 0.6:
+                self.send_msg(f"🚨 *【拉高出貨】*\n`{SYMBOL}` 上漲但賣壓沉重！\n比例: `{ratio:.2f}`")
+            
+            # V2: 動能背離 (與前一分鐘價格對比)
+            if len(self.prices) > 0:
+                if p > self.prices[-1] and ratio < 0.6:
+                    self.send_msg(f"🛡️ *【頂部動能背離】*\n`{SYMBOL}` 價升量縮，小心見頂！")
 
-    def on_open(self, ws):
-        print(f"📡 {SYMBOL} 量價實時雷達已啟動...")
+        if elapsed >= 60:
+            self.prices.append(p)
+            self.reset_metrics()
 
-radar = LiveRadar()
-ws = websocket.WebSocketApp(f"wss://fstream.binance.com/ws/{SYMBOL.lower()}@trade", on_message=radar.on_message, on_open=radar.on_open)
-ws.run_forever()
+if __name__ == "__main__":
+    radar = UnifiedRadar()
+    ws = websocket.WebSocketApp(f"wss://fstream.binance.com/ws/{SYMBOL.lower()}@trade", on_message=radar.on_message)
+    ws.run_forever()
