@@ -20,12 +20,11 @@ jobs:
       - name: 3. 安裝組件
         run: pip install websocket-client requests
 
-      - name: 4. 發送啟動通知（新增）
+      - name: 4. 發送啟動成功訊息到 Telegram Bot
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: |
-          # 使用與原程式相同的方式發送通知
           python -c "
           import requests
           import os
@@ -34,11 +33,10 @@ jobs:
           if token and chat_id:
               url = 'https://api.telegram.org/bot' + token + '/sendMessage'
               data = {'chat_id': chat_id, 'text': '🚀 V1/V2雷達系統啟動成功！'}
-              response = requests.post(url, data=data)
-              print('通知發送狀態碼:', response.status_code)
+              requests.post(url, data=data)
           "
 
-      - name: 5. 點火 V1/V2 實時雷達（原步驟4）
+      - name: 5. 點火 V1/V2 實時雷達
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
