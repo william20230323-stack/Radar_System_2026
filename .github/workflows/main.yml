@@ -2,8 +2,8 @@ name: Triple_Radar_Full_Power
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # 自動點火：每 5 分鐘自動巡航
-  workflow_dispatch:      # 手動點火：隨時按按鈕測試
+    - cron: '*/5 * * * *'  # 每 5 分鐘自動巡航
+  workflow_dispatch:      # 手動點火按鈕
 
 jobs:
   radar-mission:
@@ -26,10 +26,10 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
         run: |
-          # 同時啟動 V1/V2 實時監控 (背景模式)
+          # 啟動 V1/V2 實時流雷達 (背景模式)
           python radar_commander.py &
           
           sleep 5
           
-          # 啟動 V3 聰明錢戰報並進入巡航守衛 (前景模式)
+          # 啟動 V3 聰明錢戰報並守住巡航進度 (前景模式)
           python smart_money_radar.py
