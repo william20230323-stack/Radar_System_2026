@@ -1,28 +1,40 @@
 name: Triple_Radar_Full_Power
+
 on:
   schedule:
-    - cron: '*/5 * * * *'
-  workflow_dispatch:
+    - cron: '*/5 * * * *'  # 每 5 分鐘自動啟動一次，全天候監控
+  workflow_dispatch:      # 允許手動點擊 Run workflow 測試
+
 jobs:
-  run-radar:
+  radar-mission:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - name: Setup Python
+      - name: 1. 檢出倉庫代碼
+        uses: actions/checkout@v3
+
+      - name: 2. 初始化 Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-      - name: Install
-        run: pip install websocket-client requests
-      - name: Start Triple Engine
+
+      - name: 3. 安裝武器庫必要依賴
+        run: |
+          pip install websocket-client requests
+
+      - name: 4. 啟動三重防禦雷達系統
         env:
+          # 對接 GitHub Secrets 裡的保險箱變數
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
         run: |
-          # 啟動背景雷達 (V1/V2)
+          # 啟動 V1 & V2：量價衝突與動能背離雷達 (背景執行)
+          echo "📡 正在啟動 V1+V2 實時監控模組..."
           python radar_commander.py & 
-          # 稍等 3 秒確保連線
-          sleep 3
-          # 啟動主控雷達 (V3 - 聰明錢)
+          
+          # 緩衝 5 秒確保 WebSocket 連線穩定
+          sleep 5
+          
+          # 啟動 V3：聰明錢/巨鯨持倉監控 (主程序執行)
+          echo "📡 正在啟動 V3 聰明錢偵測核心..."
           python smart_money_radar.py
