@@ -2,43 +2,49 @@ name: V1_V2_Long_Range_Radar
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # 每 15 分鐘
-  workflow_dispatch:
+    - cron: '*/15 * * * *'  # 每 15 分鐘自動點火重啟
+  workflow_dispatch:        # 手動點火
 
 jobs:
   radar-mission:
     runs-on: ubuntu-latest
-    
     steps:
-    - name: 檢出代碼
-      uses: actions/checkout@v3
+      - name: 1. 檢出代碼
+        uses: actions/checkout@v3
 
-    - name: 設置 Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
+      - name: 2. 初始化 Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
 
-    - name: 安裝依賴
-      run: pip install websocket-client requests
+      - name: 3. 安裝組件
+        run: pip install websocket-client requests
 
-    - name: 執行雷達系統
-      env:
-        TG_TOKEN: ${{ secrets.TG_TOKEN }}
-        TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
-      run: |
-        # 發送啟動通知（簡單可靠）
-        python -c "
-        import requests, os
-        token = os.getenv('TG_TOKEN')
-        chat_id = os.getenv('TG_CHAT_ID')
-        if token and chat_id:
-            url = f'https://api.telegram.org/bot{token}/sendMessage'
-            data = {'chat_id': chat_id, 'text': '🚀 V1/V2雷達啟動成功'}
-            response = requests.post(url, json=data)
-            print(f'通知狀態: {response.status_code}')
-        "
-        
-        # 執行原有雷達程式
-        echo "開始執行 radar_commander.py..."
-        python radar_commander.py
+      - name: 4. 發送啟動通知
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          python -c "
+          import requests
+          import os
+          token = os.getenv('TG_TOKEN')
+          chat_id = os.getenv('TG_CHAT_ID')
+          if token and chat_id:
+              url = f'https://api.telegram.org/bot{token}/sendMessage'
+              message = '🚀 V1/V2雷達系統啟動成功！'
+              data = {'chat_id': chat_id, 'text': message}
+              response = requests.post(url, data=data)
+              print(f'發送狀態: {response.status_code}')
+          else:
+              print('缺少TG_TOKEN或TG_CHAT_ID')
+          "
+
+      - name: 5. 點火 V1/V2 實時雷達
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
+        run: |
+          # 專注執行 V1/V2，不執行 V3
+          python radar_commander.py
