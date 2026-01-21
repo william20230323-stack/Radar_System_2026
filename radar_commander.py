@@ -1,6 +1,6 @@
 import websocket, json, time, requests, os
 
-# 🔱 鎖死抓取方式
+# 🔱 核心環境變數
 TOKEN = os.environ.get('RADAR_TOKEN')
 ID = os.environ.get('RADAR_CHAT_ID')
 
@@ -46,7 +46,7 @@ class HunterAgent:
                 
                 if len(self.macd_hist) >= 2:
                     h1, h2 = self.macd_hist[-2], self.macd_hist[-1]
-                    # 🔱 模組 F 功能插件
+                    # 🔱 模組 F 核心判定
                     if h2 < 0 and h2 > h1 and curr_p < self.open_p and self.buy_vol >= 4000:
                         if now > self.cooldown:
                             send_msg(f"🛡️ *[模組 F：左側吸籌]*\n💰 價格：`{curr_p}`")
@@ -55,14 +55,18 @@ class HunterAgent:
                         if now > self.cooldown:
                             send_msg(f"⚠️ *[模組 F：左側出逃]*\n💰 價格：`{curr_p}`")
                             self.cooldown = now + 40
+                
                 self.open_p = curr_p
                 self.buy_vol, self.sell_vol = 0.0, 0.0
                 self.window_start = now
-        except: pass
+        except:
+            pass
 
 if __name__ == "__main__":
-    # 第一時間點火測試
-    send_msg("✅ *[系統恢復]*：環境變數已對接，監控開始。")
+    send_msg("✅ *[武器庫]*：穩定結構已恢復，模組 F 巡航中。")
     agent = HunterAgent()
-    ws = websocket.WebSocketApp("wss://fstream.binance.com/ws/duskusdt@trade", on_message=agent.on_message)
+    ws = websocket.WebSocketApp(
+        "wss://fstream.binance.com/ws/duskusdt@trade",
+        on_message=agent.on_message
+    )
     ws.run_forever()
