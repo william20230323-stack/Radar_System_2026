@@ -1,43 +1,20 @@
-name: Radar_Station_Triple_Core
-
-# 設定觸發條件
+name: Radar_Final_Start
 on:
-  schedule:
-    - cron: '*/5 * * * *'  # 每 5 分鐘自動啟動一次，維持全天候監控
-  workflow_dispatch:      # 允許你在 GitHub 頁面手動點擊執行測試
-
+  workflow_dispatch:
 jobs:
-  radar-mission:
+  radar-job:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. 檢出倉庫代碼
-        uses: actions/checkout@v3
-
-      - name: 2. 初始化 Python 環境
+      - uses: actions/checkout@v3
+      - name: Setup
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-
-      - name: 3. 安裝武器庫必要依賴
-        run: |
-          pip install websocket-client requests
-
-      - name: 4. 啟動三重防禦雷達系統
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Run
         env:
-          # 將你剛剛在 Settings > Secrets 設定的變數對接到系統環境
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
-        run: |
-          # 同時啟動多個模組：
-          # 使用 & 符號讓程式在背景運行，確保它們可以並行工作
-          
-          echo "📡 正在啟動 V1：量價衝突偵測器..."
-          python radar_commander.py &
-          
-          echo "📡 正在啟動 V2：動能指標背離雷達..."
-          python divergence_radar_v2.py &
-          
-          echo "📡 正在啟動 V3：幣安聰明錢異常監控..."
-          # 最後一個程式不加 &，讓 GitHub Actions 等待它運行完成
-          python smart_money_radar.py
+        run: python smart_money_radar.py
