@@ -1,20 +1,9 @@
-name: Radar_Final_Start
-on:
-  workflow_dispatch:
-jobs:
-  radar-job:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Setup
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.9'
-      - name: Install
-        run: pip install -r requirements.txt
-      - name: Run
+      - name: 啟動三重防禦雷達系統
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
-        run: python smart_money_radar.py
+        run: |
+          python radar_commander.py &  # 啟動 V1/V2 雷達並在背景運行
+          sleep 5                      # 等待 5 秒確保連線穩定
+          python smart_money_radar.py  # 啟動 V3 聰明錢主控核心
