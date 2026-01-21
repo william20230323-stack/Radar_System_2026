@@ -1,62 +1,28 @@
-import websocket, json, time, requests, os
-from config import RADAR_TOKEN, RADAR_CHAT_ID, SYMBOL
-
-class UnifiedRadar:
-    def __init__(self):
-        self.prices = []
-        self.reset_metrics()
-        self.end_time = time.time() + 250 # 運行 4 分鐘
-
-    def reset_metrics(self):
-        self.start_time = time.time()
-        self.open_price = 0.0
-        self.buy_vol, self.sell_vol = 0.0, 0.0
-        self.is_alerted = False
-
-    def send_msg(self, text):
-        url = f"https://api.telegram.org/bot{RADAR_TOKEN}/sendMessage"
-        try:
-            requests.post(url, json={"chat_id": RADAR_CHAT_ID, "text": text, "parse_mode": "Markdown"}, timeout=5)
-            self.is_alerted = True
-        except: pass
-
-    def on_message(self, ws, message):
-        if time.time() > self.end_time:
-            ws.close()
-            return
-        
-        d = json.loads(message)
-        p, v = float(d['p']), float(d['p']) * float(d['q'])
-        
-        if self.open_price == 0: self.open_price = p
-        
-        if d['m']: self.sell_vol += v # 主動拋售
-        else: self.buy_vol += v       # 主動掃貨
-
-        elapsed = time.time() - self.start_time
-        
-        # 每分鐘結算一次背離邏輯
-        if 55 <= elapsed < 60 and not self.is_alerted:
-            ratio = self.buy_vol / self.sell_vol if self.sell_vol > 0 else 1.0
-            chg = (p - self.open_price) / self.open_price * 100
-            
-            # V1: 隱性支撐/拉高出貨 (模組 F/E)
-            if chg < -0.15 and ratio > 1.8:
-                self.send_msg(f"⚠️ *【武器庫：隱性支撐】*\n標的：`{SYMBOL}`\n📉 價格下跌但買盤強勁！\n🔥 燃料比：`{ratio:.2f}`")
-            elif chg > 0.15 and ratio < 0.6:
-                self.send_msg(f"🚨 *【武器庫：拉高出貨】*\n標的：`{SYMBOL}`\n📈 價格上升但賣壓沉重！\n💸 燃料比：`{ratio:.2f}`")
-            
-            # V2: 價格與動能背離 (當前價 vs 前一分鐘價)
-            if len(self.prices) > 0:
-                if p > self.prices[-1] and ratio < 0.6:
-                    self.send_msg(f"🛡️ *【武器庫：頂部動能背離】*\n標的：`{SYMBOL}`\n📈 價升量縮，小心回撤！")
-
-        if elapsed >= 60:
-            self.prices.append(p)
-            self.reset_metrics()
-
-if __name__ == "__main__":
-    print(f"📡 {SYMBOL} 量價/動能雙重雷達掛載中...")
-    radar = UnifiedRadar()
-    ws = websocket.WebSocketApp(f"wss://fstream.binance.com/ws/{SYMBOL.lower()}@trade", on_message=radar.on_message)
-    ws.run_forever()
+name: Triple_Radar_Full_Power
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+jobs:
+  run-radar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install
+        run: pip install websocket-client requests
+      - name: Start Triple Engine
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
+        run: |
+          # 啟動背景雷達 (V1/V2)
+          python radar_commander.py & 
+          # 稍等 3 秒確保連線
+          sleep 3
+          # 啟動主控雷達 (V3 - 聰明錢)
+          python smart_money_radar.py
