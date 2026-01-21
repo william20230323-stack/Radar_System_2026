@@ -1,14 +1,14 @@
 name: Hunter_Infinite_Relay
 
 on:
-  workflow_dispatch:      # 妳點火第一次
+  workflow_dispatch:      # 妳手動點火第一次
   schedule:
-    - cron: '*/5 * * * *'  # 系統每 5 分鐘強制重啟接力
+    - cron: '*/5 * * * *'  # 系統每 5 分鐘強制啟動新一棒
 
 jobs:
   radar-mission:
     runs-on: ubuntu-latest
-    # 核心修正：當每 5 分鐘的新任務啟動時，自動切斷舊的，達成無縫接力
+    # 併發管理：當每 5 分鐘的新任務啟動時，自動切斷舊的，達成無縫接力
     concurrency:
       group: hunter-radar-relay
       cancel-in-progress: true 
@@ -31,7 +31,6 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
         run: |
-          # 設定巡航 330 秒 (5.5分鐘)
-          # 這樣能確保下一個 5 分鐘任務啟動時，這個舊任務還在跑
-          # 進而觸發 concurrency 取代機制，達成無限接力
+          # 巡航 330 秒 (5.5分鐘)，確保下一個任務啟動時這個還在跑
+          # 從而觸發 concurrency 取代機制
           python radar_commander.py
