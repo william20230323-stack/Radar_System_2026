@@ -5,7 +5,6 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-# 核心優化：併發控制（當新代碼推送時，舊代碼立刻停止）
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -26,7 +25,7 @@ jobs:
         run: pip install websocket-client requests
 
       - name: 🚀 點火巡航 (模組 F)
+        run: python radar_commander.py
         env:
           RADAR_TOKEN: ${{ secrets.RADAR_TOKEN }}
           RADAR_CHAT_ID: ${{ secrets.RADAR_CHAT_ID }}
-        run: python radar_commander.py
