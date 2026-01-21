@@ -1,14 +1,13 @@
 name: Hunter_Infinite_Relay
 
 on:
-  workflow_dispatch:      # 妳手動點火第一次
+  workflow_dispatch:      # 手動點火
   schedule:
-    - cron: '*/5 * * * *'  # 系統每 5 分鐘強制啟動新一棒
+    - cron: '*/5 * * * *'  # 每 5 分鐘自動點火
 
 jobs:
   radar-mission:
     runs-on: ubuntu-latest
-    # 併發管理：當每 5 分鐘的新任務啟動時，自動切斷舊的，達成無縫接力
     concurrency:
       group: hunter-radar-relay
       cancel-in-progress: true 
@@ -25,12 +24,12 @@ jobs:
       - name: 3. 安裝組件
         run: pip install websocket-client requests
 
-      - name: 4. 執行武器庫 A-F
+      - name: 4. 執行武器庫 A-F (Agent 版)
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
         run: |
-          # 巡航 330 秒 (5.5分鐘)，確保下一個任務啟動時這個還在跑
-          # 從而觸發 concurrency 取代機制
+          # 巡航時間設定為 320 秒
+          # 確保覆蓋 5 分鐘的 schedule 間隔，強迫 GitHub 執行 concurrency 切換
           python radar_commander.py
