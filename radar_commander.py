@@ -1,12 +1,11 @@
 import websocket, json, time, requests, os
 from datetime import datetime
 
-# 🔱 核心配置：由 Agent V3.0 優化
+# 🔱 核心配置
 SYMBOL = "DUSKUSDT"
 
 class HunterAgentiPhone:
     def __init__(self):
-        # 🛡️ 從 GitHub 保險箱讀取鑰匙 (請確保保險箱名稱完全一致)
         self.token = os.getenv('RADAR_TOKEN')
         self.chat_id = os.getenv('RADAR_CHAT_ID')
         
@@ -16,15 +15,12 @@ class HunterAgentiPhone:
         self.ema_fast, self.ema_slow = 0.0, 0.0
         self.macd_hist = []
         self.cooldown = 0
-        # 巡航 5.5 小時後自動更換任務
         self.end_time = time.time() + 20000 
 
     def send_msg(self, text):
-        """發送戰報，若鑰匙讀取失敗會列印提示"""
         if not self.token or not self.chat_id:
-            print("❌ 警告：GitHub 保險箱鑰匙讀取失敗，請檢查 Secrets 名稱！")
+            print("❌ 鑰匙讀取失敗")
             return
-        
         url = f"https://api.telegram.org/bot{self.token}/sendMessage"
         try:
             requests.post(url, json={"chat_id": self.chat_id, "text": text, "parse_mode": "Markdown"}, timeout=5)
@@ -35,8 +31,9 @@ class HunterAgentiPhone:
         if self.ema_fast == 0:
             self.ema_fast = self.ema_slow = price
             return 0.0
-        self.ema_fast = (price * (2/13)) + (self.ema_fast * (11/13))
-        self.ema_slow = (price * (2/27)) + (self.ema_slow * (25/27))
+        # 🔱 稍微調靈敏一點：12, 26 -> 9, 21
+        self.ema_fast = (price * (2/10)) + (self.ema_fast * (8/10))
+        self.ema_slow = (price * (2/22)) + (self.ema_slow * (20/22))
         return self.ema_fast - self.ema_slow
 
     def on_message(self, ws, message):
@@ -58,16 +55,17 @@ class HunterAgentiPhone:
                 if len(self.macd_hist) >= 2:
                     h1, h2 = self.macd_hist[-2], self.macd_hist[-1]
                     
-                    # 🔱 模組 F：左側吸籌 (0 軸下實轉空 + 陰線)
-                    if h2 < 0 and h2 > h1 and curr_p < self.open_p and self.buy_vol >= 4000:
+                    # 🔱 偵測邏輯（模組 F）
+                    # 下降轉折 + 買盤大於 2000 (稍微降低門檻測試)
+                    if h2 < 0 and h2 > h1 and curr_p < self.open_p and self.buy_vol >= 2000:
                         if now > self.cooldown:
-                            self.send_msg(f"🛡️ *[模組 F：左側吸籌]*\n💰 價格：`{curr_p}`\n📉 狀態：陰線 + 0 軸下實轉空\n✅ 吸收：`{self.buy_vol/1000:.1f}K USDT`")
+                            self.send_msg(f"🛡️ *[模組 F：左側吸籌]*\n💰 價格：`{curr_p}`\n✅ 買盤：`{self.buy_vol/1000:.1f}K` (偵測中)")
                             self.cooldown = now + 40
                             
-                    # 🔱 模組 F：左側出逃 (0 軸上空轉實 + 陽線)
-                    elif h2 > 0 and h2 < h1 and curr_p > self.open_p and self.sell_vol >= 4000:
+                    # 上升轉折 + 賣盤大於 2000
+                    elif h2 > 0 and h2 < h1 and curr_p > self.open_p and self.sell_vol >= 2000:
                         if now > self.cooldown:
-                            self.send_msg(f"⚠️ *[模組 F：左側出逃]*\n💰 價格：`{curr_p}`\n📈 狀態：陽線 + 0 軸上空轉實\n🚨 拋售：`{self.sell_vol/1000:.1f}K USDT`")
+                            self.send_msg(f"⚠️ *[模組 F：左側出逃]*\n💰 價格：`{curr_p}`\n🚨 賣盤：`{self.sell_vol/1000:.1f}K` (偵測中)")
                             self.cooldown = now + 40
 
                 self.open_p = curr_p
@@ -78,8 +76,8 @@ class HunterAgentiPhone:
 
 if __name__ == "__main__":
     agent = HunterAgentiPhone()
-    # 點火確認
-    agent.send_msg(f"🚀 *[武器庫點火]*：iPhone 指揮端已連線，正在巡航 {SYMBOL}")
+    # 🔱 關鍵！這行確保妳一儲存，Bot 就會響，證明代碼與 Secrets 沒問題
+    agent.send_msg(f"✅ *[巡航啟動]*：武器庫 F 已接入 {SYMBOL}\n正在執行 0 軸能量過濾...")
     
     ws = websocket.WebSocketApp(
         f"wss://fstream.binance.com/ws/{SYMBOL.lower()}@trade",
