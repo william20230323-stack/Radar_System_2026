@@ -22,7 +22,7 @@ jobs:
 
       - name: 🚀 點火巡航
         env:
-          # 🔱 這裡嚴格對齊妳截圖中的保險箱名稱
-          FINAL_TOKEN: ${{ secrets.TG_TOKEN }}
-          FINAL_ID: ${{ secrets.TG_CHAT_ID }}
+          # 🔱 鎖死您截圖中的 Secrets 名稱
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: python radar_commander.py
