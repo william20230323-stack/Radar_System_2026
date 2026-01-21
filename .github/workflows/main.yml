@@ -2,59 +2,43 @@ name: V1_V2_Long_Range_Radar
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # 每15分鐘
-  workflow_dispatch:        # 手動觸發
+    - cron: '*/15 * * * *'  # 每 15 分鐘
+  workflow_dispatch:
 
 jobs:
   radar-mission:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
     
     steps:
-    - name: 1. 檢出代碼
+    - name: 檢出代碼
       uses: actions/checkout@v3
 
-    - name: 2. 初始化 Python
+    - name: 設置 Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
 
-    - name: 3. 安裝組件
+    - name: 安裝依賴
       run: pip install websocket-client requests
 
-    - name: 4. 發送啟動通知
+    - name: 執行雷達系統
       env:
         TG_TOKEN: ${{ secrets.TG_TOKEN }}
         TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
       run: |
-        python3 -c "
+        # 發送啟動通知（簡單可靠）
+        python -c "
         import requests, os
         token = os.getenv('TG_TOKEN')
         chat_id = os.getenv('TG_CHAT_ID')
         if token and chat_id:
             url = f'https://api.telegram.org/bot{token}/sendMessage'
             data = {'chat_id': chat_id, 'text': '🚀 V1/V2雷達啟動成功'}
-            requests.post(url, json=data)
-            print('✅ Telegram通知已發送')
-        else:
-            print('⚠️ 缺少TG_TOKEN或TG_CHAT_ID')
+            response = requests.post(url, json=data)
+            print(f'通知狀態: {response.status_code}')
         "
-
-    - name: 5. 執行雷達系統
-      env:
-        TG_TOKEN: ${{ secrets.TG_TOKEN }}
-        TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
-      run: |
-        echo "🚀 開始執行雷達系統..."
-        python3 -c "
-        import time, os
-        print('交易對:', os.getenv('TRADE_SYMBOL'))
         
-        # 模擬工作
-        for i in range(12):  # 運行12分鐘
-            print(f'⏳ 運行中... {i+1}分鐘')
-            time.sleep(60)
-        
-        print('✅ 執行完成')
-        "
+        # 執行原有雷達程式
+        echo "開始執行 radar_commander.py..."
+        python radar_commander.py
