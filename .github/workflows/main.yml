@@ -20,13 +20,16 @@ jobs:
       - name: 3. 安裝組件
         run: pip install websocket-client requests
 
-      - name: 4. 啟動三重雷達系統
+      - name: 4. 執行三重雷達系統
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
         run: |
-          # 這裡我們讓 V1/V2 在背景跑，V3 在前景跑並負責守住時間
+          # 啟動 V1/V2 實時監控 (背景模式)
           python radar_commander.py &
+          
           sleep 5
+          
+          # 啟動 V3 聰明錢戰報並守住進度條 (前景模式)
           python smart_money_radar.py
