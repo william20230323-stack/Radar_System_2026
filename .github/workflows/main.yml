@@ -1,0 +1,31 @@
+name: Radar_Station_Auto_Pro
+
+# 設定觸發條件
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # 每 5 分鐘自動啟動一次
+  workflow_dispatch:      # 允許你手動點擊按鈕執行
+
+jobs:
+  run-radar-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. 下載倉庫代碼
+        uses: actions/checkout@v3
+
+      - name: 2. 安裝 Python 環境
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: 3. 安裝必要套件
+        run: |
+          pip install websocket-client requests
+
+      - name: 4. 啟動雷達站 (對接 Secrets)
+        env:
+          # --- 這裡最重要：將 GitHub 的保險箱密鑰傳給程式 ---
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
+        run: python radar_commander.py
