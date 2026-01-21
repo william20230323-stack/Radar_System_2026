@@ -2,7 +2,7 @@ name: Triple_Radar_Full_Power
 
 on:
   schedule:
-    - cron: '*/5 * * * *'  # 每 5 分鐘自動巡航一次
+    - cron: '*/5 * * * *'  # 每 5 分鐘自動巡航
   workflow_dispatch:      # 允許手動點火測試
 
 jobs:
@@ -21,20 +21,20 @@ jobs:
         run: |
           pip install websocket-client requests
 
-      - name: 4. 執行三重雷達系統
+      - name: 4. 啟動三重雷達系統
         env:
-          # 對接 GitHub Secrets 保險箱
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
         run: |
-          # 第一步：先執行 V3 聰明錢核心，確保「火力全開」戰報第一時間發出
-          echo "🚀 正在點火 V3 聰明錢模組..."
+          # 第一階段：發送 V3 聰明錢開機戰報
+          echo "🚀 正在啟動 V3 聰明錢偵測核心..."
           python smart_money_radar.py
           
-          # 緩衝 3 秒，確保訊息發送完畢
-          sleep 3
+          # 緩衝 2 秒
+          sleep 2
           
-          # 第二步：啟動 V1+V2 實時監控雷達 (佔用執行緒持續巡航 4 分鐘)
+          # 第二階段：點火 V1/V2 實時監控雷達
+          # 這次不加 &，讓它佔用剩餘時間進行全速巡航
           echo "📡 正在點火 V1/V2 實時監控雷達..."
           python radar_commander.py
