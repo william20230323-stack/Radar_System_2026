@@ -1,38 +1,38 @@
-import requests, time, os
-from config import RADAR_TOKEN, RADAR_CHAT_ID, SYMBOL
+name: Triple_Radar_Full_Power
 
-def send_tg(msg):
-    token = str(RADAR_TOKEN).strip()
-    chat_id = str(RADAR_CHAT_ID).strip()
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {"chat_id": chat_id, "text": msg, "parse_mode": "Markdown"}
-    try:
-        r = requests.post(url, json=payload, timeout=10)
-        # 這裡會在 GitHub 日誌顯示發送結果，200 就是成功
-        print(f"📡 傳送狀態碼: {r.status_code}")
-        if r.status_code != 200:
-            print(f"❌ 錯誤原因: {r.text}")
-    except Exception as e:
-        print(f"⚠️ 網路異常: {e}")
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # 每 5 分鐘自動巡航一次
+  workflow_dispatch:      # 允許手動點擊按鈕點火
 
-def get_whale_data():
-    # 抓取幣安大戶持倉比例
-    url = "https://fapi.binance.com/futures/data/topLongShortAccountRatio"
-    try:
-        r = requests.get(url, params={"symbol": SYMBOL, "period": "5m", "limit": 1}, timeout=10)
-        data = r.json()
-        return float(data[0]['longAccount']) if data else None
-    except: return None
+jobs:
+  radar-mission:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. 檢出武器庫代碼
+        uses: actions/checkout@v3
 
-if __name__ == "__main__":
-    ratio = get_whale_data()
-    val = f"{ratio:.2%}" if ratio else "偵測中"
-    
-    # 新機啟動戰報
-    msg = (f"🔥 *【William_Hunter_V2：火力全開】*\n"
-           f"📊 標的：`{SYMBOL}`\n"
-           f"🐳 大戶多頭：`{val}`\n"
-           f"📡 武器庫三重防禦網已掛載，開始巡航！")
-    
-    send_tg(msg)
-    time.sleep(240) # 維持背景運作 4 分鐘
+      - name: 2. 初始化 Python 環境
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: 3. 安裝必要組件
+        run: |
+          pip install websocket-client requests
+
+      - name: 4. 執行三重雷達並發送戰報
+        env:
+          # 對接 GitHub Secrets 裡的保險箱
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
+        run: |
+          # 同時點火 V1/V2 量價與動能雷達 (背景執行)
+          python radar_commander.py & 
+          
+          # 緩衝 5 秒，確保連線穩定
+          sleep 5
+          
+          # 點火 V3 聰明錢核心，並發出「火力全開」啟動訊息
+          python smart_money_radar.py
