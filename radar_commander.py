@@ -1,6 +1,6 @@
 import websocket, json, time, requests, os
 
-# 🔱 核心環境變數
+# 🔱 核心配置
 TOKEN = os.environ.get('RADAR_TOKEN')
 ID = os.environ.get('RADAR_CHAT_ID')
 
