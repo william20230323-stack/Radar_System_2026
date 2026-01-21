@@ -8,10 +8,10 @@ class HunterRelayRadar:
         self.buy_vol = 0.0
         self.sell_vol = 0.0
         self.last_p = 0.0
-        # 設定單次巡航 280 秒，確保在 GitHub 下一個自動循環前結束
-        self.end_time = time.time() + 280 
+        # 設定巡航 330 秒，覆蓋 5 分鐘的自動週期
+        self.end_time = time.time() + 330 
         self.cooldown = 0 
-        self.WHALE_THRESHOLD = 5000 # 5秒內買單吃貨門檻 (USDT)
+        self.WHALE_THRESHOLD = 5000 
 
     def send_msg(self, text):
         url = f"https://api.telegram.org/bot{RADAR_TOKEN.strip()}/sendMessage"
@@ -20,47 +20,47 @@ class HunterRelayRadar:
         except: pass
 
     def on_message(self, ws, message):
-        # 4分40秒時間到，自動斷開 WebSocket，GitHub 任務會顯示完成
         if time.time() > self.end_time: 
             ws.close()
             return
         
-        d = json.loads(message)
-        curr_p = float(d['p'])
-        v = curr_p * float(d['q'])
-        
-        if self.last_p == 0: self.last_p = curr_p
-        if d['m']: self.sell_vol += v
-        else: self.buy_vol += v
+        try:
+            d = json.loads(message)
+            curr_p = float(d['p'])
+            v = curr_p * float(d['q'])
+            
+            if self.last_p == 0: self.last_p = curr_p
+            if d['m']: self.sell_vol += v
+            else: self.buy_vol += v
 
-        now = time.time()
-        if now - self.window_start >= 5: # 5秒偵查窗
-            is_dropping = curr_p < self.last_p
-            ratio = self.buy_vol / self.sell_vol if self.sell_vol > 0 else 1.0
-            
-            # V1：偵測價格正在下跌中，但有大量買單吃進 (隱性支撐)
-            if is_dropping and ratio > 2.0 and self.buy_vol >= self.WHALE_THRESHOLD and now > self.cooldown:
-                buy_amount = f"{self.buy_vol / 1000:.1f}K"
-                self.send_msg(
-                    f"⚠️ *[武器庫 V1：隱性支撐]*\n"
-                    f"📊 標的：`{SYMBOL}`\n"
-                    f"❌ 警報：*偵測到價格正在下跌中*\n"
-                    f"🔥 吃貨量：有大量買單 `{buy_amount} USDT` 吃進\n"
-                    f"⚖️ 瞬時買賣比：`{ratio:.2f}`"
-                )
-                self.cooldown = now + 40 
-            
-            self.last_p = curr_p
-            self.buy_vol, self.sell_vol = 0.0, 0.0
-            self.window_start = now
+            now = time.time()
+            if now - self.window_start >= 5:
+                is_dropping = curr_p < self.last_p
+                ratio = self.buy_vol / self.sell_vol if self.sell_vol > 0 else 1.0
+                
+                if is_dropping and ratio > 2.0 and self.buy_vol >= self.WHALE_THRESHOLD and now > self.cooldown:
+                    buy_amount = f"{self.buy_vol / 1000:.1f}K"
+                    self.send_msg(
+                        f"⚠️ *[武器庫 V1：隱性支撐]*\n"
+                        f"📊 標的：`{SYMBOL}`\n"
+                        f"❌ 警報：*價格下跌中*\n"
+                        f"🔥 吃貨量：大量買單 `{buy_amount} USDT` 吃進\n"
+                        f"⚖️ 買賣比：`{ratio:.2f}`"
+                    )
+                    self.cooldown = now + 40 
+                
+                self.last_p = curr_p
+                self.buy_vol, self.sell_vol = 0.0, 0.0
+                self.window_start = now
+        except: pass
 
 if __name__ == "__main__":
     now_str = datetime.now().strftime("%H:%M:%S")
-    # 發送點火/接力戰報
+    # 啟動回報
     confirm_url = f"https://api.telegram.org/bot{RADAR_TOKEN.strip()}/sendMessage"
     requests.post(confirm_url, json={
         "chat_id": RADAR_CHAT_ID.strip(), 
-        "text": f"🔱 *武器庫 A-F：自動無限接力啟動*\n⏰ 啟動時間：`[{now_str}]`\n📡 狀態：循環系統已鎖定，監控不間斷。",
+        "text": f"🔱 *武器庫 A-F：接力巡航中*\n⏰ 啟動時間：`[{now_str}]`\n📡 狀態：循環系統運作正常。",
         "parse_mode": "Markdown"
     })
     
