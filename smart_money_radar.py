@@ -11,20 +11,30 @@ def get_whale_data():
     url = "https://fapi.binance.com/futures/data/topLongShortAccountRatio"
     try:
         r = requests.get(url, params={"symbol": SYMBOL, "period": "5m", "limit": 1}, timeout=10)
-        return r.json()[0]['longAccount']
-    except: return None
+        data = r.json()
+        if data and len(data) > 0:
+            return float(data[0]['longAccount'])
+    except:
+        return None
+    return None
 
 if __name__ == "__main__":
+    # 1. 嘗試取得數據
     ratio = get_whale_data()
-    # 啟動首報：確認新 Token 是否成功連線
-    startup_text = (f"🚀 *【William_Whale_Hunter】正式上線*\n"
-                    f"📊 監控標的：`{SYMBOL}`\n"
-                    f"🐳 初始聰明錢多頭：`{ratio:.2% if ratio else '讀取中'}`\n"
-                    f"📡 武器庫模組 A-F 已就緒，進入全自動巡航模式")
+    
+    # 2. 格式化顯示數據 (防呆處理)
+    display_ratio = f"{ratio:.2%}" if ratio is not None else "數據載入中..."
+    
+    # 3. 啟動首報
+    startup_text = (f"🚀 *【William_Whale_Hunter】對接成功*\n"
+                    f"📊 標的：`{SYMBOL}`\n"
+                    f"🐳 當前大戶多頭：`{display_ratio}`\n"
+                    f"📡 系統已進入全自動監控模式")
+    
     send_tg(startup_text)
     
-    # 維持 4 分鐘運行
+    # 4. 持續運行 4 分鐘
     start = time.time()
     while time.time() - start < 240:
         time.sleep(60)
-        print("📡 雷達掃描中...")
+        print("📡 雷達站監控中...")
