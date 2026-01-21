@@ -2,8 +2,8 @@ name: Triple_Radar_Full_Power
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
-  workflow_dispatch:
+    - cron: '*/5 * * * *'  # 自動點火：每 5 分鐘自動巡航
+  workflow_dispatch:      # 手動點火：隨時按按鈕測試
 
 jobs:
   radar-mission:
@@ -17,21 +17,19 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: 3. 安裝組件
+      - name: 3. 安裝必要組件
         run: pip install websocket-client requests
 
-      - name: 4. 啟動三重雷達系統
+      - name: 4. 武器庫 A-F 全面點火
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
         run: |
-          # 啟動 V1/V2 實時監控 (背景模式)
-          echo "📡 [武器庫 A-F] V1/V2 實時雷達點火..."
+          # 同時啟動 V1/V2 實時監控 (背景模式)
           python radar_commander.py &
           
           sleep 5
           
-          # 啟動 V3 聰明錢戰報並守住進度條 (前景模式)
-          echo "📡 [武器庫 A-F] V3 聰明錢戰報發射..."
+          # 啟動 V3 聰明錢戰報並進入巡航守衛 (前景模式)
           python smart_money_radar.py
