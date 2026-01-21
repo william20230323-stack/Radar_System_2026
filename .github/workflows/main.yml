@@ -1,35 +1,32 @@
-name: Hunter_Infinite_Relay
+name: 🔱 Radar Commander Live
 
 on:
-  workflow_dispatch:      # 手動點火
-  schedule:
-    - cron: '*/5 * * * *'  # 每 5 分鐘自動點火
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+# 核心優化：併發控制（當新代碼推送時，舊代碼立刻停止）
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  radar-mission:
+  run-radar:
     runs-on: ubuntu-latest
-    concurrency:
-      group: hunter-radar-relay
-      cancel-in-progress: true 
-      
     steps:
-      - name: 1. 檢出代碼
-        uses: actions/checkout@v3
+      - name: 📥 檢出武器庫代碼
+        uses: actions/checkout@v4
 
-      - name: 2. 初始化 Python
-        uses: actions/setup-python@v4
+      - name: 🐍 初始化 Python 環境
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.10'
 
-      - name: 3. 安裝組件
+      - name: 📦 安裝必要套件
         run: pip install websocket-client requests
 
-      - name: 4. 執行武器庫 A-F (Agent 版)
+      - name: 🚀 點火巡航 (模組 F)
         env:
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
-        run: |
-          # 巡航時間設定為 320 秒
-          # 確保覆蓋 5 分鐘的 schedule 間隔，強迫 GitHub 執行 concurrency 切換
-          python radar_commander.py
+          RADAR_TOKEN: ${{ secrets.RADAR_TOKEN }}
+          RADAR_CHAT_ID: ${{ secrets.RADAR_CHAT_ID }}
+        run: python radar_commander.py
