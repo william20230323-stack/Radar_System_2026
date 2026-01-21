@@ -20,11 +20,13 @@ jobs:
       - name: 3. 安裝組件
         run: pip install websocket-client requests
 
-      - name: 4. 發送啟動成功訊息到 Telegram Bot
+      - name: 4. 點火 V1/V2 實時雷達
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
         run: |
+          # 發送啟動通知
           python -c "
           import requests
           import os
@@ -32,15 +34,9 @@ jobs:
           chat_id = os.getenv('TG_CHAT_ID')
           if token and chat_id:
               url = 'https://api.telegram.org/bot' + token + '/sendMessage'
-              data = {'chat_id': chat_id, 'text': '🚀 V1/V2雷達系統啟動成功！'}
+              data = {'chat_id': chat_id, 'text': '雷達啟動偵測'}
               requests.post(url, data=data)
           "
-
-      - name: 5. 點火 V1/V2 實時雷達
-        env:
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
-        run: |
+          
           # 專注執行 V1/V2，不執行 V3
           python radar_commander.py
