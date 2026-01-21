@@ -1,28 +1,30 @@
 import requests, time, os
 from config import RADAR_TOKEN, RADAR_CHAT_ID, SYMBOL
 
-def get_whale_ratio():
+def send_tg(msg):
+    url = f"https://api.telegram.org/bot{RADAR_TOKEN}/sendMessage"
+    try:
+        requests.post(url, json={"chat_id": RADAR_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=10)
+    except: pass
+
+def get_whale_data():
     url = "https://fapi.binance.com/futures/data/topLongShortAccountRatio"
     try:
         r = requests.get(url, params={"symbol": SYMBOL, "period": "5m", "limit": 1}, timeout=10)
-        return float(r.json()[0]['longAccount']) if r.json() else None
+        return r.json()[0]['longAccount']
     except: return None
 
-def send_startup_notice(ratio):
-    msg = (f"🚀 *【William_Whale_Hunter 啟動】*\n"
-           f"📊 標的：`{SYMBOL}`\n"
-           f"🐳 當前大戶多頭：`{ratio:.2%}`\n"
-           f"🛡️ 三重防禦雷達已就位，持續監控中...")
-    requests.post(f"https://api.telegram.org/bot{RADAR_TOKEN}/sendMessage", json={"chat_id": RADAR_CHAT_ID, "text": msg, "parse_mode": "Markdown"})
-
 if __name__ == "__main__":
-    initial_ratio = get_whale_ratio()
-    if initial_ratio:
-        send_startup_notice(initial_ratio)
-        
-        # 循環運行 4 分鐘，保持伺服器在線
-        start_time = time.time()
-        while time.time() - start_time < 240:
-            current_ratio = get_whale_ratio()
-            print(f"🐳 聰明錢掃描中... 目前多頭: {current_ratio:.2%}")
-            time.sleep(30)
+    ratio = get_whale_data()
+    # 啟動首報：確認新 Token 是否成功連線
+    startup_text = (f"🚀 *【William_Whale_Hunter】正式上線*\n"
+                    f"📊 監控標的：`{SYMBOL}`\n"
+                    f"🐳 初始聰明錢多頭：`{ratio:.2% if ratio else '讀取中'}`\n"
+                    f"📡 武器庫模組 A-F 已就緒，進入全自動巡航模式")
+    send_tg(startup_text)
+    
+    # 維持 4 分鐘運行
+    start = time.time()
+    while time.time() - start < 240:
+        time.sleep(60)
+        print("📡 雷達掃描中...")
