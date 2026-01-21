@@ -11,15 +11,12 @@ jobs:
     steps:
       - name: 📥 檢出代碼
         uses: actions/checkout@v4
-
       - name: 🐍 初始化 Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
       - name: 📦 安裝套件
         run: pip install websocket-client requests
-
       - name: 🚀 點火巡航
         env:
           RADAR_TOKEN: ${{ secrets.RADAR_TOKEN }}
