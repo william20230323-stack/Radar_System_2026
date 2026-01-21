@@ -3,8 +3,8 @@ name: Infinite_Relay_Radar
 on:
   workflow_dispatch:      # 妳手動點火第一次
   schedule:
-    - cron: '*/5 * * * *'  # 系統每 5 分鐘保險點火
-  workflow_run:           # 【核心】當任務結束時，自動觸發下一次
+    - cron: '*/5 * * * *'  # 系統備援：每 5 分鐘自動巡航
+  workflow_run:           # 【核心】當自己運行結束時，自動觸發下一次
     workflows: ["Infinite_Relay_Radar"]
     types:
       - completed
@@ -12,6 +12,7 @@ on:
 jobs:
   radar-mission:
     runs-on: ubuntu-latest
+    # 併發管理：確保舊的還沒退場時，新的接手會自動替換，不重複報警
     concurrency:
       group: hunting-relay
       cancel-in-progress: true 
@@ -25,15 +26,15 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: 3. 安裝組件
+      - name: 3. 安裝必要組件
         run: pip install websocket-client requests
 
-      - name: 4. 武器庫 A-F 無限接力巡航
+      - name: 4. 執行武器庫 A-F 無限接力
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
         run: |
-          # 執行巡航版，設定 280 秒 (約 4 分鐘 40 秒)
+          # 巡航時間設定為 280 秒 (4分40秒)
           # 留 20 秒緩衝給 GitHub 啟動下一個循環
           python radar_commander.py
