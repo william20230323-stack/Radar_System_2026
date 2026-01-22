@@ -9,15 +9,15 @@ jobs:
   patrol:
     runs-on: ubuntu-latest
     steps:
-      - name: 檢出武器庫
+      - name: 檢出
         uses: actions/checkout@v3
 
-      - name: 設置 Python
+      - name: 環境
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
 
-      - name: 安裝必要組件
+      - name: 組件
         run: pip install requests pandas
 
       - name: 啟動偵查
