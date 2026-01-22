@@ -12,7 +12,7 @@ jobs:
       - name: 檢出代碼
         uses: actions/checkout@v3
 
-      - name: 設置環境
+      - name: 設置 Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
@@ -20,9 +20,21 @@ jobs:
       - name: 安裝組件
         run: pip install requests pandas
 
-      - name: 啟動偵查
+      - name: 派遣偵查兵
         env:
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
         run: python radar_executor.py
+
+      - name: 啟動項接收並轉發異常
+        if: always() # 確保偵查完畢後一定執行檢查
+        run: |
+          # 檢查偵查兵有沒有留下報告
+          if [ -f "radar_alert.log" ]; then
+            MESSAGE=$(cat radar_alert.log)
+            curl -s -X POST "https://api.telegram.org/bot${{ secrets.TG_TOKEN }}/sendMessage" \
+              -d "chat_id=${{ secrets.TG_CHAT_ID }}" \
+              -d "text=$MESSAGE" \
+              -d "parse_mode=HTML"
+            # 發送完畢後刪除，避免下一輪重複
+            rm radar_alert.log
+          fi
