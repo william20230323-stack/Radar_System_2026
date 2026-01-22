@@ -1,18 +1,25 @@
-import requests
-
-def analyze_volume(df, symbol, tg_token, tg_chat_id):
+def analyze_volume(df, symbol):
+    # 取得最新一根 K 線數據
     last = df.iloc[-1]
-    is_yin = last['close'] < last['open']
-    is_yang = last['close'] > last['open']
+    is_yin = last['close'] < last['open']   # 陰線
+    is_yang = last['close'] > last['open']  # 陽線
+    
+    # 主動買盤 (Taker Buy Base Volume)
     buy_vol = last['taker_buy_quote']
-    sell_vol = last['quote_volume'] - buy_vol
+    # 總成交量 (Total Quote Volume)
+    total_vol = last['quote_volume']
     
-    msg = ""
-    if is_yin and (buy_vol > last['quote_volume'] * 0.5):
-        msg = f"🏮 <b>陰線逆勢掃貨</b>\n標的: {symbol}\n價格: {last['close']}\n掃貨金額: {buy_vol:.2f}"
-    elif is_yang and (sell_vol > last['quote_volume'] * 0.5):
-        msg = f"🚨 <b>陽線主力出逃</b>\n標的: {symbol}\n價格: {last['close']}\n出貨金額: {sell_vol:.2f}"
+    # 計算主動佔比
+    buy_ratio = buy_vol / total_vol if total_vol > 0 else 0
+    sell_ratio = (total_vol - buy_vol) / total_vol if total_vol > 0 else 0
     
-    if msg:
-        url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
-        requests.post(url, json={"chat_id": tg_chat_id, "text": msg, "parse_mode": "HTML"}, timeout=5)
+    # --- 調整門檻為 35% (0.35) ---
+    # 陰線 + 高額主動買入 = 逆勢掃貨 (左側信號)
+    if is_yin and (buy_ratio > 0.35):
+        return f"🏮 <b>左側預警：陰線逆勢掃貨</b>\n標的: {symbol}\n價格: {last['close']}\n主動買入佔比: {buy_ratio:.1%}"
+    
+    # 陽線 + 高額主動賣出 = 主力撤退 (左側信號)
+    elif is_yang and (sell_ratio > 0.35):
+        return f"🚨 <b>左側預警：陽線主力出逃</b>\n標的: {symbol}\n價格: {last['close']}\n主動賣出佔比: {sell_ratio:.1%}"
+    
+    return None
