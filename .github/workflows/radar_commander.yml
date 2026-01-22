@@ -9,10 +9,10 @@ jobs:
   patrol:
     runs-on: ubuntu-latest
     steps:
-      - name: 檢出偵查代碼
+      - name: 檢出代碼
         uses: actions/checkout@v3
 
-      - name: 準備偵查環境
+      - name: 設置環境
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
@@ -20,7 +20,7 @@ jobs:
       - name: 安裝組件
         run: pip install requests pandas
 
-      - name: 派遣偵查兵出勤
+      - name: 啟動偵查
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
