@@ -1,6 +1,5 @@
 import os
 import time
-import random
 import requests
 import pandas as pd
 from module_volume import analyze_volume
@@ -11,7 +10,6 @@ TG_CHAT_ID = str(os.environ.get('TG_CHAT_ID', '')).strip()
 SYMBOL = str(os.environ.get('TRADE_SYMBOL', '')).strip()
 
 def send_alert(msg):
-    """回報中心"""
     if not TG_TOKEN or not TG_CHAT_ID: return
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
     try:
@@ -20,8 +18,7 @@ def send_alert(msg):
         pass
 
 def fetch_data():
-    ENDPOINTS = ["https://api.binance.us/api/v3", "https://api1.binance.us/api/v3"]
-    url = f"{random.choice(ENDPOINTS)}/klines?symbol={SYMBOL}&interval=1m&limit=100"
+    url = f"https://api.binance.us/api/v3/klines?symbol={SYMBOL}&interval=1m&limit=100"
     try:
         res = requests.get(url, timeout=10).json()
         return pd.DataFrame(res, columns=['time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_volume', 'trades', 'taker_buy_base', 'taker_buy_quote', 'ignore']).astype(float)
@@ -29,21 +26,29 @@ def fetch_data():
         return None
 
 if __name__ == "__main__":
-    restart_limit = random.randint(540, 600)
+    # 鎖定 290 秒，確保在 GitHub 下次觸發前結束，避免 overlap 導致的鎖死
+    RUN_DURATION = 290 
     start_time = time.time()
     
-    while time.time() - start_time < restart_limit:
+    print(f"📡 雷達執行員已上線，預計巡航 {RUN_DURATION} 秒...")
+    
+    while time.time() - start_time < RUN_DURATION:
+        loop_start = time.time()
         try:
             data = fetch_data()
             if data is not None:
-                # 偵測並發送
+                # 執行偵測
                 vol_alert = analyze_volume(data, SYMBOL)
                 if vol_alert: send_alert(vol_alert)
                 
                 ind_alert = analyze_indicators(data, SYMBOL)
                 if ind_alert: send_alert(ind_alert)
-        except:
-            pass
-        time.sleep(15)
-    
-    time.sleep(random.randint(1, 30))
+        except Exception as e:
+            print(f"偵測異常: {e}")
+        
+        # 精確 15 秒間隔
+        elapsed = time.time() - loop_start
+        sleep_time = max(0, 15 - elapsed)
+        time.sleep(sleep_time)
+
+    print("🏁 任務週期結束，移交指揮權。")
