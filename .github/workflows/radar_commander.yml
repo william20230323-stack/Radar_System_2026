@@ -2,10 +2,8 @@ name: Radar_System_Commander
 
 on:
   schedule:
-    - cron: '*/5 * * * *'
-  workflow_dispatch:
-  push:
-    branches: [ main ]
+    - cron: '*/5 * * * *'  # 每5分鐘定時檢查
+  workflow_dispatch:       # 僅保留手動啟動開關
 
 jobs:
   patrol:
