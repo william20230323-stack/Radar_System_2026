@@ -17,18 +17,18 @@ jobs:
         with:
           python-version: '3.12'
 
-      # --- 強化版啟動回報：採用單行指令，防止網址斷開 ---
-      - name: 總指揮啟動回報
-        env:
-          TOKEN: ${{ secrets.TG_TOKEN }}
-          CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          SYMBOL: ${{ secrets.TRADE_SYMBOL }}
-        run: curl -s -X POST "https://api.telegram.org/bot${TOKEN}/sendMessage" -d "chat_id=${CHAT_ID}" -d "parse_mode=HTML" -d "text=🛡️ <b>Radar_System總指揮已啟動</b>%0A狀態：GitHub層級聯通正常%0A監控標的：${SYMBOL}"
-
       - name: 安裝組件
         run: |
           python -m pip install --upgrade pip
           pip install requests pandas pandas_ta
+
+      # --- 啟動項回報：由獨立 Python 腳本執行 ---
+      - name: 總指揮啟動回報
+        env:
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
+        run: python commander.py
 
       - name: 啟動雷達執行員
         env:
