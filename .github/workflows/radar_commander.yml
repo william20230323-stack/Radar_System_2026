@@ -5,7 +5,6 @@ on:
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
-# 核心修正：允許任務併發，防止舊任務未結束新任務進不來
 concurrency:
   group: radar-patrol
   cancel-in-progress: false 
