@@ -2,18 +2,27 @@ import os
 import time
 import requests
 import pandas as pd
-# 嚴格禁止更改模組名稱，連結武器庫 A
 from module_volume import analyze_volume 
 
-SYMBOL = os.environ.get('TRADE_SYMBOL')
+# 核心：每個檔案直接讀取 Token 實現獨立回傳
+def independent_report(text):
+    """執行員獨立通訊：直接從 Secrets 讀取 Token 並發射"""
+    token = str(os.environ.get('TG_TOKEN', '')).strip()
+    chat_id = str(os.environ.get('TG_CHAT_ID', '')).strip()
+    if not token or not chat_id: return
+    
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    try:
+        requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "HTML"}, timeout=10)
+    except:
+        pass
 
-def fetch_binance_us():
+def fetch_binance_us(symbol):
     """連線美國幣安接口"""
     url = "https://api.binance.us/api/v3/klines"
-    params = {'symbol': SYMBOL, 'interval': '1m', 'limit': 100}
+    params = {'symbol': symbol, 'interval': '1m', 'limit': 100}
     try:
-        # 加上 Timeout 避免卡死日誌
-        r = requests.get(url, params=params, timeout=10)
+        r = requests.get(url, params=params, timeout=12)
         if r.status_code == 200:
             res = r.json()
             if not res: return None
@@ -23,28 +32,22 @@ def fetch_binance_us():
         return None
 
 if __name__ == "__main__":
-    start_time = time.time()
-    # 這是打通日誌的第一步，確保老闆看到程式有動
-    print(f"🔱 武器庫偵查兵出勤：{SYMBOL} | 聯通模式：啟動項接收站")
+    SYMBOL = str(os.environ.get('TRADE_SYMBOL', '')).strip()
+    start_ts = time.time()
+    
+    # 執行員獨立回報啟動狀態
+    print(f"🔱 偵查執行員：{SYMBOL} 獨立就位")
+    independent_report(f"🛡️ <b>偵查兵上線</b>\n目標: {SYMBOL}")
 
-    while time.time() - start_time < 280:
+    while time.time() - start_ts < 280:
         loop_start = time.time()
-        data = fetch_binance_us()
+        df = fetch_binance_us(SYMBOL)
         
-        if data is not None and not data.empty:
-            # 呼叫底層武器庫模組 A 判定
-            alert_msg = analyze_volume(data, SYMBOL)
+        if df is not None and not df.empty:
+            last = df.iloc[-1]
+            print(f"[{time.strftime('%H:%M:%S')}] 價格: {last['close']} | 巡邏中...")
             
-            # --- 核心打通：訊息傳遞給啟動項 ---
-            if alert_msg:
-                # 將異常寫入一個固定檔案，讓啟動項 (YAML) 下一步能讀取
-                with open("radar_alert.log", "w", encoding="utf-8") as f:
-                    f.write(alert_msg)
-                print(f"🚨 偵查兵發現異常，已遞交報告至啟動項")
-            
-            # 日誌即時輸出，確保通信路沒斷
-            last = data.iloc[-1]
-            print(f"[{time.strftime('%H:%M:%S')}] 價格: {last['close']} | 偵查中...")
+            # 任務交給底層武器庫
+            analyze_volume(df, SYMBOL)
         
-        # 15 秒偵查一次
         time.sleep(max(0, 15 - (time.time() - loop_start)))
