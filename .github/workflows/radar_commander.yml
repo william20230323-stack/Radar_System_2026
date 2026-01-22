@@ -5,35 +5,22 @@ on:
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
-concurrency:
-  group: radar-patrol
-  cancel-in-progress: false 
-
 jobs:
   patrol:
     runs-on: ubuntu-latest
     steps:
-      - name: 檢出代碼
+      - name: 檢出偵查代碼
         uses: actions/checkout@v3
 
-      - name: 初始化環境
+      - name: 準備偵查環境
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
 
       - name: 安裝組件
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests pandas pandas_ta
+        run: pip install requests pandas
 
-      - name: 總指揮啟動回報
-        env:
-          TG_TOKEN: ${{ secrets.TG_TOKEN }}
-          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
-        run: python commander.py
-
-      - name: 啟動雷達執行員
+      - name: 派遣偵查兵出勤
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
