@@ -2,10 +2,10 @@ import os
 import time
 import requests
 import pandas as pd
-# 嚴格禁止更改名稱：匯入既有模組
 from module_volume import analyze_volume
 from module_indicators import analyze_indicators
 
+# 環境變數獲取
 TG_TOKEN = str(os.environ.get('TG_TOKEN', '')).strip()
 TG_CHAT_ID = str(os.environ.get('TG_CHAT_ID', '')).strip()
 SYMBOL = str(os.environ.get('TRADE_SYMBOL', '')).strip()
@@ -15,49 +15,58 @@ def send_alert(msg):
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
     try:
         requests.post(url, json={"chat_id": TG_CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
-    except:
-        pass
+    except: pass
 
 def fetch_data():
-    url = f"https://api.binance.com/api/v3/klines?symbol={SYMBOL}&interval=1m&limit=100"
+    # 改用標準 API 路徑，增加超時容錯
+    url = f"https://api.binance.com/api/v3/klines?symbol={SYMBOL}&interval=1m&limit=50"
     try:
-        res = requests.get(url, timeout=10).json()
+        response = requests.get(url, timeout=15)
+        if response.status_code != 200:
+            print(f"❌ API 響應錯誤: {response.status_code}")
+            return None
+        res = response.json()
         df = pd.DataFrame(res, columns=['time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_volume', 'trades', 'taker_buy_base', 'taker_buy_quote', 'ignore']).astype(float)
         return df
-    except:
+    except Exception as e:
+        print(f"❌ 網路連線或解析失敗: {e}")
         return None
 
 if __name__ == "__main__":
     MAX_RUN = 280 
     start_time = time.time()
     
-    print(f"📡 雷達執行員上線 | 標的: {SYMBOL} | 巡航: {MAX_RUN}秒")
+    print(f"📡 雷達執行員上線 | 標的: {SYMBOL}")
+    print(f"--- 開始進入 280 秒循環監控 ---")
     
     while time.time() - start_time < MAX_RUN:
         loop_start = time.time()
         try:
             data = fetch_data()
             if data is not None:
-                # --- 核心：日誌監控輸出 ---
+                # 取得最新一根 K 線
                 last = data.iloc[-1]
-                total_vol = last['quote_volume']
-                buy_vol = last['taker_buy_quote']
-                buy_ratio = buy_vol / total_vol if total_vol > 0 else 0
+                t_vol = last['quote_volume']
+                b_vol = last['taker_buy_quote']
+                ratio = b_vol / t_vol if t_vol > 0 else 0
                 
-                # 同步顯示在 GitHub 日誌
-                print(f"[{time.strftime('%H:%M:%S')}] 價格: {last['close']} | 主動買佔比: {buy_ratio:.2%}")
-                
-                # 執行武器庫模組 (修正參數傳遞)
-                vol_alert = analyze_volume(data, SYMBOL)
-                if vol_alert: send_alert(vol_alert)
-                
-                # 這裡修正了 09:53 截圖中的參數缺失報錯
-                ind_alert = analyze_indicators(data, SYMBOL, TG_TOKEN, TG_CHAT_ID)
-                if ind_alert: send_alert(ind_alert)
-        except Exception as e:
-            print(f"⚠️ 偵測過程出現異常: {e}")
-        
-        elapsed = time.time() - loop_start
-        time.sleep(max(0, 15 - elapsed))
+                # 強制輸出到日誌，這行沒出來代表程式死在 fetch_data
+                print(f"✅ [{time.strftime('%H:%M:%S')}] 價格: {last['close']} | 主動佔比: {ratio:.2%}")
 
-    print("🏁 本棒任務結束。")
+                # 模組檢測
+                v_alert = analyze_volume(data, SYMBOL)
+                if v_alert: send_alert(v_alert)
+                
+                # 帶參數呼叫指標模組，防止 missing argument 報錯
+                i_alert = analyze_indicators(data, SYMBOL, TG_TOKEN, TG_CHAT_ID)
+                if i_alert: send_alert(i_alert)
+            else:
+                print("⚠️ 本次掃描未能獲取數據...")
+        except Exception as e:
+            print(f"⚠️ 循環內執行錯誤: {e}")
+        
+        # 維持 15 秒頻率
+        wait = max(0, 15 - (time.time() - loop_start))
+        time.sleep(wait)
+
+    print("🏁 接力週期結束。")
