@@ -2,71 +2,62 @@ import os
 import time
 import requests
 import pandas as pd
+
+# 從啟動項 (.yml) 接收環境變數
+TG_TOKEN = os.environ.get('TG_TOKEN')
+TG_CHAT_ID = os.environ.get('TG_CHAT_ID')
+SYMBOL = os.environ.get('TRADE_SYMBOL')
+
+# --- 連結模組通路 (以後新增檔案就在這裡 import) ---
 from module_volume import analyze_volume
-from module_indicators import analyze_indicators
+# -----------------------------------------------
 
-# 環境變數獲取
-TG_TOKEN = str(os.environ.get('TG_TOKEN', '')).strip()
-TG_CHAT_ID = str(os.environ.get('TG_CHAT_ID', '')).strip()
-SYMBOL = str(os.environ.get('TRADE_SYMBOL', '')).strip()
-
-def send_alert(msg):
-    if not TG_TOKEN or not TG_CHAT_ID: return
+def broadcast_exception(msg):
+    """將偵查到的異常信息傳遞出來給老闆"""
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
     try:
         requests.post(url, json={"chat_id": TG_CHAT_ID, "text": msg, "parse_mode": "HTML"}, timeout=10)
-    except: pass
+    except:
+        pass
 
-def fetch_data():
-    # 改用標準 API 路徑，增加超時容錯
-    url = f"https://api.binance.com/api/v3/klines?symbol={SYMBOL}&interval=1m&limit=50"
+def fetch_market_data():
+    """執行偵查：向幣安獲取數據"""
+    url = f"https://api.binance.com/api/v3/klines?symbol={SYMBOL}&interval=1m&limit=100"
     try:
-        response = requests.get(url, timeout=15)
-        if response.status_code != 200:
-            print(f"❌ API 響應錯誤: {response.status_code}")
-            return None
-        res = response.json()
+        res = requests.get(url, timeout=10).json()
         df = pd.DataFrame(res, columns=['time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_volume', 'trades', 'taker_buy_base', 'taker_buy_quote', 'ignore']).astype(float)
         return df
-    except Exception as e:
-        print(f"❌ 網路連線或解析失敗: {e}")
+    except:
         return None
 
 if __name__ == "__main__":
-    MAX_RUN = 280 
-    start_time = time.time()
+    # 每一棒偵查 280 秒，確保與啟動項的 5 分鐘派遣銜接
+    MAX_DETECTION_TIME = 280 
+    start_ts = time.time()
     
-    print(f"📡 雷達執行員上線 | 標的: {SYMBOL}")
-    print(f"--- 開始進入 280 秒循環監控 ---")
-    
-    while time.time() - start_time < MAX_RUN:
+    print(f"🕵️ 偵查執行員就位 | 目標：{SYMBOL}")
+
+    while time.time() - start_ts < MAX_DETECTION_TIME:
         loop_start = time.time()
-        try:
-            data = fetch_data()
-            if data is not None:
-                # 取得最新一根 K 線
-                last = data.iloc[-1]
-                t_vol = last['quote_volume']
-                b_vol = last['taker_buy_quote']
-                ratio = b_vol / t_vol if t_vol > 0 else 0
-                
-                # 強制輸出到日誌，這行沒出來代表程式死在 fetch_data
-                print(f"✅ [{time.strftime('%H:%M:%S')}] 價格: {last['close']} | 主動佔比: {ratio:.2%}")
-
-                # 模組檢測
-                v_alert = analyze_volume(data, SYMBOL)
-                if v_alert: send_alert(v_alert)
-                
-                # 帶參數呼叫指標模組，防止 missing argument 報錯
-                i_alert = analyze_indicators(data, SYMBOL, TG_TOKEN, TG_CHAT_ID)
-                if i_alert: send_alert(i_alert)
-            else:
-                print("⚠️ 本次掃描未能獲取數據...")
-        except Exception as e:
-            print(f"⚠️ 循環內執行錯誤: {e}")
+        data = fetch_market_data()
         
-        # 維持 15 秒頻率
-        wait = max(0, 15 - (time.time() - loop_start))
-        time.sleep(wait)
+        if data is not None:
+            # 日誌輸出：確保老闆在後台能看到偵查兵在工作
+            last = data.iloc[-1]
+            buy_ratio = last['taker_buy_quote'] / last['quote_volume'] if last['quote_volume'] > 0 else 0
+            print(f"[{time.strftime('%H:%M:%S')}] 偵查中... 價格: {last['close']} | 買佔比: {buy_ratio:.2%}")
 
-    print("🏁 接力週期結束。")
+            # --- 偵查邏輯鏈條 (連結模組) ---
+            # 模組 A：單邊攻擊 (量能偵測)
+            alert_msg = analyze_volume(data, SYMBOL)
+            
+            # 如果任何模組偵查到異常，立刻將訊息遞交給啟動項傳遞出來
+            if alert_msg:
+                print("🚨 偵查兵發現異常！立刻傳遞訊息...")
+                broadcast_exception(alert_msg)
+            # ----------------------------
+        
+        # 15 秒偵查一次
+        time.sleep(max(0, 15 - (time.time() - loop_start)))
+
+    print("🏁 偵查結束，等待下一輪接力。")
