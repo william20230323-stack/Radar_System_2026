@@ -1,4 +1,4 @@
-name: Radar_System_2026_Runner
+name: Radar_Runner
 
 on:
   schedule:
@@ -6,29 +6,19 @@ on:
   workflow_dispatch:
 
 jobs:
-  radar_execution:
+  run:
     runs-on: ubuntu-latest
-    concurrency:
-      group: radar-monitor-group
-      cancel-in-progress: false
-
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-
-      - name: Install Dependencies
-        run: |
-          pip install --upgrade pip
-          pip install requests ccxt pandas
-
-      - name: Start 24/7 Detection Engine
+      - name: Start Radar
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
-        run: timeout 20000 python detector.py || true
+        run: |
+          # 這裡加上 || true 防止腳本出錯導致整個 Actions 變紅色，方便看日誌
+          python detector.py || true
