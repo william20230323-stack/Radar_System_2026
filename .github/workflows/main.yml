@@ -2,19 +2,18 @@ name: Radar_System_2026_Runner
 
 on:
   schedule:
-    - cron: '*/5 * * * *' # 每 5 分鐘檢查一次，若已在執行則跳過
-  workflow_dispatch:      # 支援手動開啟
+    - cron: '*/5 * * * *'  # 每 5 分鐘自動巡檢
+  workflow_dispatch:       # 手動開啟按鈕
 
 jobs:
   run_monitor:
     runs-on: ubuntu-latest
-    # 防止多個工作流同時運行
-    concurrency: 
-      group: radar-monitor
-      cancel-in-progress: false 
+    concurrency:
+      group: radar-247
+      cancel-in-progress: false
 
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -22,13 +21,13 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies
+      - name: Install
         run: pip install requests
 
-      - name: Start 24/7 Detection
+      - name: Start Detection
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TRADE_SYMBOL: ${{ secrets.TRADE_SYMBOL }}
-        # 設定 timeout 確保在 6 小時限制前優雅結束，讓下一個 schedule 接手
-        run: timeout 21000 python detector.py || true
+        # 執行 5.5 小時後結束，讓下一個 schedule 接手
+        run: timeout 20000 python detector.py || true
