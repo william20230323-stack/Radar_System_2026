@@ -1,14 +1,14 @@
 import os
-import sys
 import time
 import requests
 import ccxt
+from concurrent.futures import ThreadPoolExecutor
 
-# 強制不使用緩存，讓日誌立即顯示
+# 強制即時輸出日誌
 def log(msg):
-    print(msg, flush=True)
+    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
-# 參數讀取
+# 讀取 Secrets
 TG_TOKEN = str(os.environ.get("TG_TOKEN", "")).strip()
 TG_CHAT_ID = str(os.environ.get("TG_CHAT_ID", "")).strip()
 SYMBOL = "DUSK/USDT"
@@ -18,55 +18,54 @@ def send_tg(msg):
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
     try:
         r = requests.post(url, json={"chat_id": TG_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=15)
-        log(f"TG回傳碼: {r.status_code}")
+        log(f"TG Status: {r.status_code}")
     except Exception as e:
-        log(f"TG連線失敗: {e}")
+        log(f"TG Error: {e}")
 
-def get_data():
-    # 使用 Bybit 和 Gate.io，這兩家對 GitHub Actions IP 最友善
-    exchanges = [ccxt.bybit(), ccxt.gateio()]
-    for ex in exchanges:
-        try:
-            log(f"正在嘗試數據源: {ex.id}")
-            ohlcv = ex.fetch_ohlcv(SYMBOL, timeframe='1m', limit=10)
-            if ohlcv and len(ohlcv) >= 6:
-                curr = ohlcv[-1]
-                hist = ohlcv[-7:-1]
-                v = float(curr[5])
-                avg_v = sum(float(x[5]) for x in hist) / len(hist)
-                return ex.id, float(curr[1]), float(curr[4]), v, avg_v
-        except Exception as e:
-            log(f"{ex.id} 請求失敗: {e}")
-            continue
+def fetch_from_exchange(exchange_id):
+    """單獨針對指定交易所獲取數據"""
+    try:
+        # 動態初始化交易所類別
+        ex_class = getattr(ccxt, exchange_id)
+        ex = ex_class({'enableRateLimit': True})
+        
+        ohlcv = ex.fetch_ohlcv(SYMBOL, timeframe='1m', limit=10)
+        if ohlcv and len(ohlcv) >= 6:
+            curr = ohlcv[-1]
+            hist = ohlcv[-7:-1]
+            o, c, v = float(curr[1]), float(curr[4]), float(curr[5])
+            avg_v = sum(float(x[5]) for x in hist) / len(hist)
+            return exchange_id, o, c, v, avg_v
+    except Exception as e:
+        log(f"[{exchange_id}] 連線失敗: {str(e)[:50]}")
     return None
 
 def main():
-    log("=== 偵測引擎啟動中 ===")
-    # 啟動訊號
-    send_tg(f"🚀 **Radar_System_2026 已成功上線**\n監控標的: `{SYMBOL}`\n優先接口: `CCXT`")
+    log("=== Radar_System_2026 雙源模式啟動 ===")
+    send_tg(f"🛰️ **Radar 雙源同步啟動**\n端口 1：`Gate.io`\n端口 2：`Bybit`\n監控標的：`{SYMBOL}`")
 
-    last_min = ""
+    last_min_processed = ""
     while True:
-        try:
-            res = get_data()
+        now_min = time.strftime("%H:%M")
+        
+        # 使用線程池同時請求兩個數據源，提高效率
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            targets = ['gateio', 'bybit']
+            results = list(executor.map(fetch_from_exchange, targets))
+
+        for res in results:
             if res:
                 name, o, c, v, avg_v = res
-                now_min = time.strftime("%H:%M")
                 
-                if now_min != last_min:
-                    log(f"[{now_min}] {name} 價格: {c} | 量: {v:.2f}")
-                    if v > (avg_v * VOL_THRESHOLD):
-                        if c < o: # 陰買
-                            send_tg(f"⚠️ **{name} 異常大買**\n型態: `陰線` (1M)\n量能: `{v:.1f}` (均: `{avg_v:.1f}`)")
-                        elif c > o: # 陽賣
-                            send_tg(f"🚨 **{name} 異常大賣**\n型態: `陽線` (1M)\n量能: `{v:.1f}` (均: `{avg_v:.1f}`)")
-                    last_min = now_min
-            else:
-                log("無法獲取行情數據，30秒後重試...")
-        except Exception as e:
-            log(f"主循環報錯: {e}")
+                # 偵測邏輯：成交量翻倍且為分鐘首發
+                if now_min != last_min_processed and v > (avg_v * VOL_THRESHOLD):
+                    if c < o: # 陰買
+                        send_tg(f"⚠️ **{name} 異常大買**\n標的: `{SYMBOL}`\n型態: `陰線大買`\n當前量: `{v:.1f}` (均: `{avg_v:.1f}`)")
+                    elif c > o: # 陽賣
+                        send_tg(f"🚨 **{name} 異常大賣**\n標的: `{SYMBOL}`\n型態: `陽線大賣`\n當前量: `{v:.1f}` (均: `{avg_v:.1f}`)")
         
-        time.sleep(30)
+        last_min_processed = now_min
+        time.sleep(30) # 每 30 秒輪詢一次
 
 if __name__ == "__main__":
     main()
