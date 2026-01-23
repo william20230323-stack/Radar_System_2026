@@ -2,18 +2,18 @@ name: Radar_Runner
 
 on:
   schedule:
-    - cron: '*/10 * * * *' # 每 10 分鐘自動檢查運行狀態
-  workflow_dispatch:      # 支援手動開啟
+    - cron: '*/10 * * * *' # 每 10 分鐘自動巡檢，若沒在跑就啟動
+  workflow_dispatch:
 
 jobs:
   run_radar:
     runs-on: ubuntu-latest
     concurrency:
-      group: radar-group
-      cancel-in-progress: false
+      group: radar-stable-group
+      cancel-in-progress: false # 確保上一個沒結束前，下一個不會強行殺掉它
 
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -28,5 +28,5 @@ jobs:
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        # 使用 -u 確保 python 日誌即時刷新到 GitHub Actions
+        # -u 參數至關重要，保證日誌不延遲
         run: python -u detector.py
