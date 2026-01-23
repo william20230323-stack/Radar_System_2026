@@ -6,10 +6,15 @@ on:
   workflow_dispatch:
 
 jobs:
-  run:
+  run_radar:
     runs-on: ubuntu-latest
+    # 確保不會有多個實例同時運行造成頻率限制
+    concurrency:
+      group: radar-group
+      cancel-in-progress: false
+
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -18,11 +23,10 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
-        run: pip install requests ccxt pandas
+        run: pip install requests ccxt
 
-      - name: Start Radar Engine
+      - name: Execute Radar
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        # 關鍵在於 python -u 參數，這會強制即時刷新日誌
         run: python -u detector.py
