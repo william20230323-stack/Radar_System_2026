@@ -1,59 +1,73 @@
 import os
+import sys
 import time
-import akshare as ak
 import requests
-import pandas as pd
 
-# 密鑰配置
+# 嘗試加載環境變數
 TG_TOKEN = os.getenv("TG_TOKEN")
 TG_CHAT_ID = os.getenv("TG_CHAT_ID")
-SYMBOL = "DUSK" # AKShare 通常使用簡稱
+SYMBOL = os.getenv("TRADE_SYMBOL", "DUSKUSDT")
 
 def send_tg_msg(msg):
+    """通訊診斷：如果發不出去會直接印出原因"""
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
     try:
-        requests.post(url, json={"chat_id": TG_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=10)
-    except:
-        pass
-
-def get_akshare_data():
-    """調用 AKShare 接口獲取分鐘數據"""
-    try:
-        # 使用數字貨幣行情接口 (範例使用主流接口轉換)
-        # 注意：AKShare 的接口名稱經常更新，這是獲取即時行情的常用方式
-        df = ak.crypto_hist_node(symbol=SYMBOL, period="1") 
-        return df
+        r = requests.post(url, json={"chat_id": TG_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=10)
+        print(f"Telegram Log: {r.status_code} - {r.text}")
     except Exception as e:
-        print(f"AKShare Error: {e}")
-        return None
+        print(f"Telegram Error: {e}")
+
+def get_data_binance():
+    """備援方案 1: Binance.US (最穩定)"""
+    url = f"https://api.binance.us/api/v3/klines?symbol={SYMBOL}&interval=1m&limit=6"
+    try:
+        r = requests.get(url, timeout=10).json()
+        curr, hist = r[-1], r[-6:-1]
+        return float(curr[1]), float(curr[4]), float(curr[5]), sum(float(x[5]) for x in hist)/5
+    except: return None
+
+def get_data_akshare():
+    """主要方案: AKShare (如果出錯會返回 None)"""
+    try:
+        import akshare as ak
+        # 這裡改用更穩定的 crypto_js_spot 獲取實時數據
+        df = ak.crypto_js_spot()
+        row = df[df['symbol'] == SYMBOL.replace('USDT', '')]
+        # 由於 AKShare 部分接口不提供 1m K線歷史，我們優先保證連通
+        return None # 暫時回傳 None 觸發備援測試
+    except: return None
 
 def main():
-    send_tg_msg(f"📡 **AKShare 偵測引擎啟動**\n監控標的: `{SYMBOL}`\n環境: `GitHub Actions`")
-    
-    last_time = None
-    
+    # 啟動時第一秒強制發送，如果 7 秒內沒收到這封，代表代碼報錯
+    print("System Starting...")
+    send_tg_msg(f"🛰️ **Radar_System_2026**\n系統啟動中...\n檢測標的: `{SYMBOL}`")
+
+    last_min = ""
     while True:
-        df = get_akshare_data()
+        # 優先從 Binance.US 獲取數據 (GitHub IP 支持度最高)
+        result = get_data_binance()
         
-        if df is not None and not df.empty:
-            # 取最後兩筆數據進行比對
-            latest = df.iloc[-1]
-            prev_avg = df.iloc[-6:-1]['volume'].mean() # 計算前 5 分鐘均量
+        if result:
+            o, c, v, avg_v = result
+            now_min = time.strftime("%M")
             
-            curr_time = latest['item_time']
-            if curr_time != last_time:
-                o, c, v = float(latest['open']), float(latest['close']), float(latest['volume'])
-                
-                # 您的核心偵測邏輯
-                if v > (prev_avg * 2.0):
+            if now_min != last_min:
+                print(f"Scanning {SYMBOL}: Price {c}, Vol {v}")
+                if v > (avg_v * 2.0):
                     if c < o:
-                        send_tg_msg(f"⚠️ **AKShare 警報**\n標的: `{SYMBOL}`\n型態: `陰線大買` (1M)\n量: `{v:.1f}` (均: `{prev_avg:.1f}`)")
+                        send_tg_msg(f"⚠️ **異常大買**\n幣種: `{SYMBOL}`\n型態: `陰線` (1M)\n量: `{v:.1f}`")
                     elif c > o:
-                        send_tg_msg(f"🚨 **AKShare 警報**\n標的: `{SYMBOL}`\n型態: `陽線大賣` (1M)\n量: `{v:.1f}` (均: `{prev_avg:.1f}`)")
-                
-                last_time = curr_time
-        
-        time.sleep(30) # AKShare 抓取網頁建議間隔稍長，避免被封 IP
+                        send_tg_msg(f"🚨 **異常大賣**\n幣種: `{SYMBOL}`\n型態: `陽線` (1M)\n量: `{v:.1f}`")
+                last_min = now_min
+        else:
+            print("Warning: All data sources failed. Retrying...")
+            
+        time.sleep(20)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        # 捕捉所有崩潰原因並發送至 TG，防止默默停止
+        send_tg_msg(f"❌ **系統崩潰報告**\n原因: `{str(e)}`")
+        print(f"CRITICAL ERROR: {e}")
