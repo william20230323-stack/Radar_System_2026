@@ -1,3 +1,5 @@
-akshare
 requests
 pandas
+akshare
+alpha_vantage
+ccxt
