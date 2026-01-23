@@ -9,16 +9,20 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      - name: Start Radar
+
+      - name: Install Dependencies
+        run: pip install requests ccxt pandas
+
+      - name: Start Radar Engine
         env:
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: |
-          # 這裡加上 || true 防止腳本出錯導致整個 Actions 變紅色，方便看日誌
-          python detector.py || true
+        # 關鍵在於 python -u 參數，這會強制即時刷新日誌
+        run: python -u detector.py
