@@ -1,95 +1,85 @@
 import os
+import sys
 import time
-import requests
-import pandas as pd
+
+# --- 強制自我修復：若缺少 ccxt 或 requests 則自動安裝 ---
+def install_dependencies():
+    import subprocess
+    needed = ["ccxt", "requests", "pandas"]
+    for lib in needed:
+        try:
+            __import__(lib)
+        except ImportError:
+            print(f"Missing {lib}, installing...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", lib])
+
+install_dependencies()
+
 import ccxt
-from alpha_vantage.cryptocurrencies import CryptoCurrencies
+import requests
 
 # 密鑰配置
 TG_TOKEN = os.getenv("TG_TOKEN")
 TG_CHAT_ID = os.getenv("TG_CHAT_ID")
-AV_KEY = os.getenv("AV_API_KEY")
-SYMBOL_BASE = "DUSK"
-SYMBOL_PAIR = "DUSK/USDT"
+SYMBOL_CCXT = "DUSK/USDT"
 VOL_MULTIPLIER = 2.0
 
 def send_tg_msg(msg):
+    if not TG_TOKEN or not TG_CHAT_ID: return
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
     try:
         requests.post(url, json={"chat_id": TG_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=10)
-    except: pass
-
-# --- 數據源: CCXT (支援數百家交易所，預設使用 Binance) ---
-def get_ccxt_data():
-    try:
-        # 使用不需 API Key 的公開接口
-        exchange = ccxt.binance({
-            'enableRateLimit': True,
-            'options': {'defaultType': 'spot'}
-        })
-        # 獲取 1 分鐘 K 線 (最近 6 根)
-        ohlcv = exchange.fetch_ohlcv(SYMBOL_PAIR, timeframe='1m', limit=6)
-        # ohlcv 格式: [timestamp, open, high, low, close, volume]
-        curr = ohlcv[-1]
-        hist = ohlcv[:-1]
-        v = float(curr[5])
-        avg_v = sum(float(x[5]) for x in hist) / 5
-        return ("CCXT_Binance", float(curr[1]), float(curr[4]), v, avg_v)
     except Exception as e:
-        print(f"CCXT Error: {e}")
-        return None
+        print(f"TG Send Error: {e}")
 
-# --- 數據源: Alpha Vantage ---
-def get_alpha_vantage():
-    if not AV_KEY: return None
-    try:
-        cc = CryptoCurrencies(key=AV_KEY)
-        data, _ = cc.get_digital_currency_daily(symbol=SYMBOL_BASE, market='USD')
-        latest_date = list(data.keys())[0]
-        latest = data[latest_date]
-        return ("AlphaVantage", float(latest['1a. open (USD)']), float(latest['4a. close (USD)']), float(latest['5. volume']), 0)
-    except: return None
-
-# --- 數據源: AKShare ---
-def get_akshare():
-    try:
-        import akshare as ak
-        df = ak.crypto_js_spot()
-        row = df[df['symbol'] == SYMBOL_BASE]
-        if not row.empty:
-            return ("AKShare", float(row['open'].values[0]), float(row['last'].values[0]), float(row['vol'].values[0]), 0)
-    except: return None
+def get_ccxt_data():
+    """優先調用 CCXT 獲取數據"""
+    # 嘗試多個交易所端點以防 IP 被封
+    exchanges = [ccxt.binanceus(), ccxt.binance(), ccxt.gateio()]
+    for ex in exchanges:
+        try:
+            print(f"Trying source: {ex.id}...")
+            # 獲取最近 6 根 1m K線
+            ohlcv = ex.fetch_ohlcv(SYMBOL_CCXT, timeframe='1m', limit=6)
+            if not ohlcv: continue
+            
+            curr = ohlcv[-1]
+            hist = ohlcv[:-1]
+            v = float(curr[5])
+            avg_v = sum(float(x[5]) for x in hist) / 5
+            return (f"CCXT_{ex.id}", float(curr[1]), float(curr[4]), v, avg_v)
+        except Exception as e:
+            print(f"{ex.id} failed: {e}")
+            continue
+    return None
 
 def main():
-    # 啟動通知
-    send_tg_msg(f"🚀 **Radar_全數據引擎啟動**\n整合接口: `CCXT`, `AlphaVantage`, `AKShare`, `Binance.US`\n監控標的: `{SYMBOL_PAIR}`")
+    print("🚀 Radar Engine Starting (Priority: CCXT)...")
+    # 啟動時發送一次心跳，若 6 秒沒收到此封，代表 Token 錯誤或連線被阻斷
+    send_tg_msg(f"✅ **Radar_System_2026**\n優先接口：`CCXT`\n狀態：`已啟動，開始並行偵測`")
     
-    last_min = ""
+    last_processed_ts = 0
     while True:
-        # 優先級順序: CCXT -> AKShare -> AlphaVantage
-        sources = [get_ccxt_data, get_akshare, get_alpha_vantage]
-        
-        for get_func in sources:
-            res = get_func()
+        try:
+            res = get_ccxt_data()
             if res:
                 name, o, c, v, avg_v = res
-                now_min = time.strftime("%M")
-                
-                if now_min != last_min:
-                    # 核心偵測邏輯：成交量翻倍 + 陰買/陽賣
-                    if avg_v > 0 and v > (avg_v * VOL_MULTIPLIER):
-                        if c < o:
-                            send_tg_msg(f"⚠️ **{name} 偵測警報**\n型態: `陰線大買` (1M)\n當前量: `{v:.1f}`\n均量: `{avg_v:.1f}`")
-                        elif c > o:
-                            send_tg_msg(f"🚨 **{name} 偵測警報**\n型態: `陽線大賣` (1M)\n當前量: `{v:.1f}`\n均量: `{avg_v:.1f}`")
-                    last_min = now_min
-                    break # 成功獲取任一源則跳過，防止重複警報
-        
+                # 簡單防止重複警報
+                if v > (avg_v * VOL_MULTIPLIER):
+                    if c < o:
+                        send_tg_msg(f"⚠️ **{name} 異常大買**\n型態：`陰線` (1M)\n成交量：`{v:.1f}`")
+                    elif c > o:
+                        send_tg_msg(f"🚨 **{name} 異常大賣**\n型態：`陽線` (1M)\n成交量：`{v:.1f}`")
+            else:
+                print("All CCXT sources failed. Waiting 30s...")
+        except Exception as e:
+            print(f"Loop error: {e}")
+            
         time.sleep(20)
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        # 崩潰診斷發送
-        send_tg_msg(f"❌ **系統崩潰臨界報錯**\n原因: `{str(e)}`")
+        # 如果崩潰，發送最後的遺言
+        send_tg_msg(f"❌ **系統核心崩潰**\n原因: `{str(e)}`")
