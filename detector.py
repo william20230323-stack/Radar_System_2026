@@ -1,140 +1,112 @@
 import os
 import time
 import requests
+import ccxt
 import random
 import sys
-from datetime import datetime, timedelta, timezone
 
-# ==========================================
-# 武器庫 (A-F) 系統底層設定
-# 負責實戰、過濾、防禦、撤退
-# ==========================================
-
+# 強制即時輸出日誌
 def log(msg):
-    tw_tz = timezone(timedelta(hours=8))
-    now_tw = datetime.now(tw_tz).strftime('%Y-%m-%d %H:%M:%S')
-    print(f"[{now_tw}] {msg}", flush=True)
+    print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
+# 紀錄啟動時間 (用於計算 5 小時後續命)
 START_TIME = time.time()
-MAX_RUN_TIME = 18000 
+MAX_RUN_TIME = 18000 # 5 小時
 
+# 讀取 Secrets 環境變數
 TG_TOKEN = str(os.environ.get("TG_TOKEN", "")).strip()
 TG_CHAT_ID = str(os.environ.get("TG_CHAT_ID", "")).strip()
+SYMBOL = "DUSK/USDT"
+VOL_THRESHOLD = 2.0 # 成交量翻倍門檻
 
-SYMBOL = "DUSK_USDT" 
-VOL_THRESHOLD = 2.0 
-MML_LENGTH = 100  # 莫里指標回顧長度
-MML_MULT = 0.125  # 莫里乘數 (1/8)
+# MML 莫里數學參數
+MML_LOOKBACK = 100 
+MML_MULT = 0.125
 
-class MurreyRadar:
-    def __init__(self):
-        self.base_url = "https://api.gateio.ws/api/v4"
+def send_tg(msg):
+    """呼叫 Telegram API 發送警報"""
+    url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
+    try:
+        r = requests.post(url, json={"chat_id": TG_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=10)
+        log(f"TG Status: {r.status_code}")
+    except Exception as e:
+        log(f"TG 發送異常: {e}")
 
-    def send_tg(self, msg):
-        if not TG_TOKEN or not TG_CHAT_ID: return
-        url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-        try:
-            requests.post(url, json={"chat_id": TG_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=5)
-        except: pass
-
-    def calculate_mml(self):
-        """計算莫里數學振盪值 (判定買賣超)"""
-        try:
-            # 抓取 100 根 K 線計算 MML
-            url = f"{self.base_url}/spot/candlesticks"
-            res = requests.get(url, params={"currency_pair": SYMBOL, "interval": "1m", "limit": MML_LENGTH}, timeout=10).json()
-            if not isinstance(res, list) or len(res) < MML_LENGTH: return 0
+def get_market_data():
+    """獲取 K 線數據並計算 MML 空間位階"""
+    ex = ccxt.gateio({'enableRateLimit': True, 'timeout': 15000})
+    try:
+        # 獲取 100 根 K 線以計算 MML 振盪值
+        ohlcv = ex.fetch_ohlcv(SYMBOL, timeframe='1m', limit=MML_LOOKBACK)
+        if ohlcv and len(ohlcv) >= 6:
+            # --- 1. 原有功能數據提取 ---
+            curr = ohlcv[-1]   
+            hist = ohlcv[-7:-1] 
+            o, c, v = float(curr[1]), float(curr[4]), float(curr[5])
+            avg_v = sum(float(x[5]) for x in hist) / len(hist)
             
-            highs = [float(x[3]) for x in res]
-            lows = [float(x[4]) for x in res]
-            close = float(res[-1][2])
-            
+            # --- 2. 新增 MML 買賣超判定邏輯 ---
+            highs = [float(x[2]) for x in ohlcv]
+            lows = [float(x[3]) for x in ohlcv]
             hi, lo = max(highs), min(lows)
             r = hi - lo
             midline = lo + r * 0.5
+            # 計算莫里數學振盪值
+            oscillator = (c - midline) / (r / 2) if r != 0 else 0
             
-            # 莫里振盪公式: (close - midline) / (range / 2)
-            oscillator = (close - midline) / (r / 2) if r != 0 else 0
-            return oscillator
-        except: return 0
-
-    def get_market_data(self):
-        """實戰邏輯：背離偵測 + MML 買賣超判定"""
-        try:
-            # 1. 行情數據
-            kl_url = f"{self.base_url}/spot/candlesticks"
-            kl_res = requests.get(kl_url, params={"currency_pair": SYMBOL, "interval": "1m", "limit": 11}, timeout=10).json()
+            is_oversold = oscillator < -MML_MULT * 6  # 賣超區 (Blue)
+            is_overbought = oscillator > MML_MULT * 6 # 買超區 (Orange)
             
-            # 2. 成交明細
-            trades_url = f"{self.base_url}/spot/trades"
-            trades_res = requests.get(trades_url, params={"currency_pair": SYMBOL, "limit": 60}, timeout=10).json()
-
-            if isinstance(kl_res, list) and len(kl_res) >= 10:
-                curr, hist = kl_res[-1], kl_res[-7:-1]
-                v, c, o = float(curr[1]), float(curr[2]), float(curr[5])
-                avg_v = sum(float(x[1]) for x in hist) / len(hist)
-                
-                # 主動買賣分析
-                buy_v = sum(float(t['amount']) for t in trades_res if t['side'] == 'buy')
-                sell_v = sum(float(t['amount']) for t in trades_res if t['side'] == 'sell')
-                buy_ratio = buy_v / (buy_v + sell_v) if (buy_v + sell_v) > 0 else 0.5
-                
-                # MML 判定
-                osc = self.calculate_mml()
-                is_oversold = osc < -MML_MULT * 6  # 藍色區域
-                is_overbought = osc > MML_MULT * 6 # 橘色區域
-
-                log(f"⚡ 監控中 | 價: {c} | 買比: {buy_ratio:.1%} | MML: {osc:.2f}")
-                
-                return {
-                    "c": c, "v": v, "avg_v": avg_v, "is_red": c < o, "is_green": c > o,
-                    "buy_ratio": buy_ratio, "is_oversold": is_oversold, "is_overbought": is_overbought
-                }
-        except: pass
-        return None
+            log(f"Gate.io 更新 | 價: {c} | 量: {v:.1f} | MML: {oscillator:.2f}")
+            return o, c, v, avg_v, is_oversold, is_overbought
+            
+    except Exception as e:
+        log(f"Gate.io 端口連線異常: {str(e)[:50]}")
+    return None
 
 def main():
-    radar = MurreyRadar()
-    log(f"=== Radar_System_2026 背離+MML版啟動 ===")
+    log("=== Radar_System_2026 MML 增強版啟動 ===")
     
+    send_tg(f"🚀 **Radar 系統全功能上線**\n數據源：`Gate.io` (MML 增強版)\n監控：`陰陽背離 + 空間買賣超`")
+
     last_min_processed = ""
-    tw_tz = timezone(timedelta(hours=8))
     
     while True:
-        if time.time() - START_TIME > MAX_RUN_TIME: sys.exit(0)
+        if time.time() - START_TIME > MAX_RUN_TIME:
+            log("[安全機制] 運行已達 5 小時，主動結束以觸發下一次重啟...")
+            sys.exit(0)
 
-        data = radar.get_market_data()
-        if data:
-            v, avg_v, buy_ratio = data['v'], data['avg_v'], data['buy_ratio']
-            now_min = datetime.now(tw_tz).strftime("%H:%M")
-            
-            if now_min != last_min_processed and v > (avg_v * VOL_THRESHOLD):
-                alert_type = ""
-                extra_info = ""
-
-                # 邏輯 A：陰線吃貨 (陰線 + 大量買單)
-                if data['is_red'] and buy_ratio > 0.60:
-                    alert_type = "🟡 **【陰線吃貨】主動買單進場**"
-                    if data['is_oversold']:
-                        extra_info = "\n🔥 **注意：目前處於 MML 賣超區域（藍色），反彈機率極高！**"
-
-                # 邏輯 B：陽線出逃 (陽線 + 大量賣單)
-                elif data['is_green'] and buy_ratio < 0.40:
-                    alert_type = "🟠 **【陽線出逃】主動賣單砸盤**"
-                    if data['is_overbought']:
-                        extra_info = "\n⚠️ **注意：目前處於 MML 買超區域（橘色），回調風險極大！**"
-
-                if alert_type:
-                    msg = (f"{alert_type}\n"
-                           f"狀態：主動買佔比 `{buy_ratio:.1%}`"
-                           f"{extra_info}\n"
-                           f"---"
-                           f"\n價格：`{data['c']}`\n量能：`{v:.0f}` (均: `{avg_v:.0f}`)\n"
-                           f"時間：`{datetime.now(tw_tz).strftime('%H:%M:%S')}`")
-                    radar.send_tg(msg)
-                    last_min_processed = now_min
+        try:
+            data = get_market_data()
+            if data:
+                o, c, v, avg_v, is_os, is_ob = data
+                now_min = time.strftime("%H:%M")
+                
+                # 偵測邏輯：成交量翻倍觸發
+                if now_min != last_min_processed and v > (avg_v * VOL_THRESHOLD):
+                    alert_msg = ""
+                    
+                    # 邏輯 A：陰線吃貨 (陰線大買)
+                    if c < o:
+                        extra = "\n📊 **額外告知：目前賣超**" if is_os else ""
+                        alert_msg = f"⚠️ **Gate.io 異常大買**\n標的: `{SYMBOL}`\n型態: `陰線大買` (1M)\n成交量: `{v:.1f}` (均: `{avg_v:.1f}`){extra}"
+                    
+                    # 邏輯 B：陽線出逃 (陽線大賣)
+                    elif c > o:
+                        extra = "\n📊 **額外告知：目前買超**" if is_ob else ""
+                        alert_msg = f"🚨 **Gate.io 異常大賣**\n標的: `{SYMBOL}`\n型態: `陽線大賣` (1M)\n成交量: `{v:.1f}` (均: `{avg_v:.1f}`){extra}"
+                    
+                    if alert_msg:
+                        send_tg(alert_msg)
+                        last_min_processed = now_min
+            else:
+                log("暫無回傳數據，等待下一次隨機輪詢...")
+        except Exception as e:
+            log(f"主程序崩潰錯誤: {e}")
         
-        time.sleep(random.randint(5, 10))
+        wait_time = random.randint(5, 15)
+        log(f"休眠 {wait_time} 秒...")
+        time.sleep(wait_time)
 
 if __name__ == "__main__":
     main()
