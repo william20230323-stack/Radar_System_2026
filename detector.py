@@ -21,87 +21,94 @@ MAX_RUN_TIME = 18000
 TG_TOKEN = str(os.environ.get("TG_TOKEN", "")).strip()
 TG_CHAT_ID = str(os.environ.get("TG_CHAT_ID", "")).strip()
 BINANCE_API_KEY = os.getenv('BINANCE_API_KEY')
-BINANCE_API_SECRET = os.getenv('BINANCE_API_SECRET')
 
 SYMBOL = "DUSKUSDT" 
 VOL_THRESHOLD = 2.0 
 
-class BinanceDirectRadar:
+class BinanceProbe:
     def __init__(self):
-        self.base_url = "https://fapi.binance.com"
-        # 使用 Session 預先建立連線池，增加流暢度
-        self.session = requests.Session()
-        self.session.headers.update({
-            'X-MBX-APIKEY': BINANCE_API_KEY,
-            'User-Agent': 'Mozilla/5.0'
-        })
+        # 嘗試使用幣安不同的 API 備援入口，避開 GitHub 被封鎖的節點
+        self.endpoints = [
+            "https://fapi.binance.com",
+            "https://fapi1.binance.com",
+            "https://fapi2.binance.com",
+            "https://fapi3.binance.com"
+        ]
+        self.current_url = self.endpoints[0]
 
     def send_tg(self, msg):
         if not TG_TOKEN or not TG_CHAT_ID: return
-        url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
         try:
-            # TG 發送也必須極短超時，防止卡死
-            self.session.post(url, json={"chat_id": TG_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=3)
-        except:
-            pass
+            url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
+            requests.post(url, json={"chat_id": TG_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=5)
+        except: pass
 
-    def get_data(self):
-        """直連底層：強制超時機制"""
-        try:
-            # 1. 抓取 K 線 (設定連線超時 3.05 秒，讀取超時 5 秒)
-            kl_url = f"{self.base_url}/fapi/v1/klines"
-            kl_params = {"symbol": SYMBOL, "interval": "1m", "limit": 10}
-            
-            # 使用非常激進的 timeout，一旦卡住立刻斷開重來
-            response = self.session.get(kl_url, params=kl_params, timeout=(3.05, 5))
-            kl_res = response.json()
-
-            # 2. 抓取巨鯨數據
-            whale_url = f"{self.base_url}/futures/data/topLongShortAccountRatio"
-            whale_params = {"symbol": SYMBOL, "period": "5m", "limit": 1}
-            whale_res = self.session.get(whale_url, params=whale_params, timeout=(3.05, 5)).json()
-
-            if isinstance(kl_res, list) and len(kl_res) >= 7:
-                curr, hist = kl_res[-1], kl_res[-7:-1]
-                o, c, v = float(curr[1]), float(curr[4]), float(curr[5])
-                avg_v = sum(float(x[5]) for x in hist) / len(hist)
+    def fetch_data(self):
+        """底層探針：輪詢多個 API 節點直到連通"""
+        # 隨機打亂節點嘗試
+        random.shuffle(self.endpoints)
+        
+        for url in self.endpoints:
+            try:
+                # 激進的連線策略：1.5秒連不上就換下一個入口
+                kl_url = f"{url}/fapi/v1/klines"
+                kl_params = {"symbol": SYMBOL, "interval": "1m", "limit": 10}
                 
-                whale_ratio = whale_res[0].get('longShortRatio', 'N/A') if whale_res else "N/A"
-                log(f"⚡ 掃描中 | 價: {c} | 巨鯨: {whale_ratio} | 量: {v:.0f}")
-                return o, c, v, avg_v, whale_ratio
-        except requests.exceptions.RequestException as e:
-            # 如果卡住了，這裡會抓到並打印，不會死等
-            log(f"⏳ 連線跳轉中... (網路波動)")
-        except Exception as e:
-            log(f"⚠️ 異常: {str(e)[:30]}")
+                log(f"🔍 正在嘗試底層節點: {url} ...")
+                res = requests.get(kl_url, params=kl_params, timeout=(1.5, 3.5))
+                
+                if res.status_code == 200:
+                    data = res.json()
+                    if isinstance(data, list) and len(data) >= 7:
+                        self.current_url = url # 記住這個通的節點
+                        return data
+            except:
+                continue
         return None
 
+    def get_whale_ratio(self):
+        """截取巨鯨數據"""
+        try:
+            url = f"{self.current_url}/futures/data/topLongShortAccountRatio"
+            params = {"symbol": SYMBOL, "period": "5m", "limit": 1}
+            res = requests.get(url, params=params, timeout=3).json()
+            return res[0].get('longShortRatio', 'N/A') if res else "N/A"
+        except:
+            return "N/A"
+
 def main():
-    radar = BinanceDirectRadar()
-    log(f"=== Radar_System_2026 直連偵察啟動 | 目標: {SYMBOL} ===")
+    probe = BinanceProbe()
+    log(f"=== Radar_System_2026 探針模式啟動 | 目標: {SYMBOL} ===")
     
-    radar.send_tg(f"🚀 **Radar 系統直連探針已部署**")
+    probe.send_tg(f"📡 **Radar 探針已發射**\n目標：`{SYMBOL}`\n模式：`多節點自動切換`")
     
     last_min_processed = ""
     tw_tz = timezone(timedelta(hours=8))
     
     while True:
         if time.time() - START_TIME > MAX_RUN_TIME:
-            log("[安全機制] 5小時續命退出")
+            log("[安全機制] 5小時續命重啟")
             sys.exit(0)
 
-        data = radar.get_data()
-        if data:
-            o, c, v, avg_v, whale_ratio = data
-            now_min = datetime.now(tw_tz).strftime("%H:%M")
+        klines = probe.fetch_data()
+        if klines:
+            curr, hist = klines[-1], klines[-7:-1]
+            o, c, v = float(curr[1]), float(curr[4]), float(curr[5])
+            avg_v = sum(float(x[5]) for x in hist) / len(hist)
             
+            whale_ratio = probe.get_whale_ratio()
+            log(f"✅ 連線成功 | 價: {c} | 巨鯨: {whale_ratio} | 量: {v:.0f}")
+
+            now_min = datetime.now(tw_tz).strftime("%H:%M")
             if now_min != last_min_processed and v > (avg_v * VOL_THRESHOLD):
                 direction = "多頭" if c > o else "空頭"
                 msg = f"🚨 **DUSK 異動**\n方向: `{direction}`\n巨鯨: `{whale_ratio}`"
-                radar.send_tg(msg)
+                probe.send_tg(msg)
                 last_min_processed = now_min
+        else:
+            log("❌ 所有 API 節點暫時無法連通，GitHub 網路受阻，5秒後重試...")
         
-        time.sleep(random.randint(5, 12))
+        time.sleep(5)
 
 if __name__ == "__main__":
     main()
