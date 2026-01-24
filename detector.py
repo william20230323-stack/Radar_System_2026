@@ -1,9 +1,10 @@
 import os
 import time
-import ccxt
+import requests
+import hmac
+import hashlib
 import random
 import sys
-import requests
 from datetime import datetime, timedelta, timezone
 
 # ==========================================
@@ -17,93 +18,98 @@ def log(msg):
     print(f"[{now_tw}] {msg}", flush=True)
 
 START_TIME = time.time()
-MAX_RUN_TIME = 18000 
+MAX_RUN_TIME = 18000  # 5 小時
 
 TG_TOKEN = str(os.environ.get("TG_TOKEN", "")).strip()
 TG_CHAT_ID = str(os.environ.get("TG_CHAT_ID", "")).strip()
 BINANCE_API_KEY = os.getenv('BINANCE_API_KEY')
 BINANCE_API_SECRET = os.getenv('BINANCE_API_SECRET')
 
-SYMBOL = "DUSK/USDT" # CCXT 格式帶斜槓
+SYMBOL = "DUSKUSDT"  # 直連格式不帶斜槓
 VOL_THRESHOLD = 2.0 
 
-class BinanceRadar:
+class BinanceDirectRadar:
     def __init__(self):
-        # 回歸你最開始使用的 CCXT 初始化方式，這對 GitHub Actions 環境最穩定
-        self.exchange = ccxt.binance({
-            'apiKey': BINANCE_API_KEY,
-            'secret': BINANCE_API_SECRET,
-            'enableRateLimit': True,
-            'options': {'defaultType': 'future'} # 鎖定合約市場
-        })
+        # 直接鎖定幣安合約國際站底層接口
+        self.base_url = "https://fapi.binance.com"
+        self.headers = {
+            'X-MBX-APIKEY': BINANCE_API_KEY,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        }
 
     def send_tg(self, msg):
         if not TG_TOKEN or not TG_CHAT_ID: return
         url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
         try:
-            requests.post(url, json={"chat_id": TG_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=10)
+            requests.post(url, json={"chat_id": TG_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=5)
         except:
             pass
 
-    def get_whale_ratio(self, symbol):
-        """抓取巨鯨多空比 (CCXT 不支援此私有數據，改用直連 API)"""
+    def get_market_and_whale(self):
+        """直連底層：同步獲取 K 線與巨鯨數據"""
         try:
-            # 將 DUSK/USDT 轉為 DUSKUSDT
-            clean_symbol = symbol.replace("/", "")
-            url = f"https://fapi.binance.com/futures/data/topLongShortAccountRatio?symbol={clean_symbol}&period=5m&limit=1"
-            res = requests.get(url, timeout=5).json()
-            if res and len(res) > 0:
-                return res[0].get('longShortRatio', 'N/A')
-        except:
-            return "N/A"
-        return "N/A"
+            # 1. 獲取 1m K線數據 (公開接口但帶上 Key 請求更穩)
+            kl_url = f"{self.base_url}/fapi/v1/klines"
+            kl_params = {"symbol": SYMBOL, "interval": "1m", "limit": 10}
+            kl_res = requests.get(kl_url, params=kl_params, headers=self.headers, timeout=10).json()
 
-    def get_market_data(self):
-        """使用 CCXT 獲取 K 線數據 (最穩定的搜尋源)"""
-        try:
-            # 獲取 1m K線
-            ohlcv = self.exchange.fetch_ohlcv(SYMBOL, timeframe='1m', limit=10)
-            if ohlcv and len(ohlcv) >= 7:
-                curr = ohlcv[-1]
-                hist = ohlcv[-7:-1]
+            # 2. 獲取聰明錢數據 (巨鯨多空比)
+            whale_url = f"{self.base_url}/futures/data/topLongShortAccountRatio"
+            whale_params = {"symbol": SYMBOL, "period": "5m", "limit": 1}
+            whale_res = requests.get(whale_url, params=whale_params, headers=self.headers, timeout=10).json()
+
+            if isinstance(kl_res, list) and len(kl_res) >= 7:
+                curr = kl_res[-1]
+                hist = kl_res[-7:-1]
+                # 幣安 K 線格式: [開盤時間, 開, 高, 低, 收, 成交量, ...]
                 o, c, v = float(curr[1]), float(curr[4]), float(curr[5])
                 avg_v = sum(float(x[5]) for x in hist) / len(hist)
                 
-                # 同步獲取巨鯨比
-                whale_ratio = self.get_whale_ratio(SYMBOL)
-                
-                log(f"幣安連線 | 價: {c} | 巨鯨: {whale_ratio} | 量: {v:.1f} | 均: {avg_v:.1f}")
+                whale_ratio = "N/A"
+                if whale_res and len(whale_res) > 0:
+                    whale_ratio = whale_res[0].get('longShortRatio', 'N/A')
+
+                log(f"⚡ 直連掃描 | 價: {c} | 巨鯨: {whale_ratio} | 量: {v:.1f} | 均: {avg_v:.1f}")
                 return o, c, v, avg_v, whale_ratio
         except Exception as e:
-            log(f"⚠️ 幣安連線異常: {str(e)[:50]}")
+            log(f"⚠️ 幣安直連異常: {str(e)[:50]}")
         return None
 
 def main():
-    radar = BinanceRadar()
-    log(f"=== Radar_System_2026 穩定連線版啟動 | 目標: {SYMBOL} ===")
+    radar = BinanceDirectRadar()
+    log(f"=== Radar_System_2026 直連版啟動 | 目標: {SYMBOL} ===")
     
-    radar.send_tg(f"🚀 **Radar 系統已切換 CCXT 穩定源**\n目標：`{SYMBOL}`")
+    if not BINANCE_API_KEY:
+        log("❌ 錯誤：找不到 API Key，請檢查 GitHub Secrets 設定")
+        return
+
+    radar.send_tg(f"🚀 **Radar 系統直連連線成功**\n目標：`{SYMBOL}`\n來源：`Binance Fapi (合約)`")
     
     last_min_processed = ""
     tw_tz = timezone(timedelta(hours=8))
     
     while True:
+        # 5 小時續命機制
         if time.time() - START_TIME > MAX_RUN_TIME:
-            log("[安全機制] 5小時續命觸發")
+            log("[安全機制] 運行達 5 小時，主動退出觸發重啟")
             sys.exit(0)
 
-        data = radar.get_market_data()
+        data = radar.get_market_and_whale()
         if data:
             o, c, v, avg_v, whale_ratio = data
             now_min = datetime.now(tw_tz).strftime("%H:%M")
             
+            # 成交量翻倍邏輯
             if now_min != last_min_processed and v > (avg_v * VOL_THRESHOLD):
                 direction = "多頭" if c > o else "空頭"
-                msg = f"🚨 **DUSK 量能警報**\n方向: `{direction}`\n巨鯨比: `{whale_ratio}`\n時間: `{datetime.now(tw_tz).strftime('%H:%M:%S')}`"
+                msg = (f"🚨 **DUSK 量能警報**\n"
+                       f"方向: `{direction}`\n"
+                       f"巨鯨比: `{whale_ratio}`\n"
+                       f"時間: `{datetime.now(tw_tz).strftime('%H:%M:%S')}`")
                 radar.send_tg(msg)
                 last_min_processed = now_min
         
-        # 保持隨機間隔 5-15 秒
+        # 隨機延遲，維持搜尋流暢
         time.sleep(random.randint(5, 15))
 
 if __name__ == "__main__":
