@@ -9,7 +9,7 @@ import sys
 def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
-# 紀錄啟動時間 (用於計算 5 小時後續命)
+# 紀錄啟動時間 (用於 5 小時續命)
 START_TIME = time.time()
 MAX_RUN_TIME = 18000 # 5 小時
 
@@ -33,53 +33,65 @@ def send_tg(msg):
         log(f"TG 發送異常: {e}")
 
 def get_market_data():
-    """獲取 K 線數據並計算 MML 空間位階"""
+    """獲取 K 線、主動買賣比與 MML 空間位階"""
     ex = ccxt.gateio({'enableRateLimit': True, 'timeout': 15000})
     try:
-        # 獲取 100 根 K 線以計算 MML 振盪值
+        # 1. 獲取 K 線 (原本功能 + MML)
         ohlcv = ex.fetch_ohlcv(SYMBOL, timeframe='1m', limit=MML_LOOKBACK)
+        # 2. 獲取最新成交明細 (分析主動買賣單)
+        trades = ex.fetch_trades(SYMBOL, limit=80)
+        
         if ohlcv and len(ohlcv) >= 6:
-            # --- 1. 原有功能數據提取 ---
             curr = ohlcv[-1]   
             hist = ohlcv[-7:-1] 
             o, c, v = float(curr[1]), float(curr[4]), float(curr[5])
             avg_v = sum(float(x[5]) for x in hist) / len(hist)
             
-            # --- 2. 新增 MML 買賣超判定邏輯 ---
+            # --- 莫里數學判定 ---
             highs = [float(x[2]) for x in ohlcv]
             lows = [float(x[3]) for x in ohlcv]
             hi, lo = max(highs), min(lows)
             r = hi - lo
             midline = lo + r * 0.5
-            # 計算莫里數學振盪值
             oscillator = (c - midline) / (r / 2) if r != 0 else 0
+            is_os = oscillator < -MML_MULT * 6  # 賣超
+            is_ob = oscillator > MML_MULT * 6   # 買超
             
-            is_oversold = oscillator < -MML_MULT * 6  # 賣超區 (Blue)
-            is_overbought = oscillator > MML_MULT * 6 # 買超區 (Orange)
+            # --- 主動買賣比計算 ---
+            buy_v = sum(float(t['amount']) for t in trades if t['side'] == 'buy')
+            sell_v = sum(float(t['amount']) for t in trades if t['side'] == 'sell')
+            total_trade_v = buy_v + sell_v
             
-            log(f"Gate.io 更新 | 價: {c} | 量: {v:.1f} | MML: {oscillator:.2f}")
-            return o, c, v, avg_v, is_oversold, is_overbought
+            buy_pct = (buy_v / total_trade_v * 100) if total_trade_v > 0 else 0
+            sell_pct = (sell_v / total_trade_v * 100) if total_trade_v > 0 else 0
+            
+            log(f"Gate 更新 | 價: {c} | 買比: {buy_pct:.1f}% | MML: {oscillator:.2f}")
+            return {
+                'o': o, 'c': c, 'v': v, 'avg_v': avg_v,
+                'is_os': is_os, 'is_ob': is_ob,
+                'buy_pct': buy_pct, 'sell_pct': sell_pct
+            }
             
     except Exception as e:
-        log(f"Gate.io 端口連線異常: {str(e)[:50]}")
+        log(f"數據採集異常: {str(e)[:50]}")
     return None
 
 def main():
-    log("=== Radar_System_2026 MML 增強版啟動 ===")
+    log("=== Radar_System_2026 背離比例版啟動 ===")
     
-    send_tg(f"🚀 **Radar 系統全功能上線**\n數據源：`Gate.io` (MML 增強版)\n監控：`陰陽背離 + 空間買賣超`")
+    send_tg(f"🚀 **Radar 系統實戰啟動**\n數據源：`Gate.io` (CCXT)\n監控：`主動買賣比% + MML 位階`")
 
     last_min_processed = ""
     
     while True:
         if time.time() - START_TIME > MAX_RUN_TIME:
-            log("[安全機制] 運行已達 5 小時，主動結束以觸發下一次重啟...")
+            log("[安全機制] 5小時續命重啟")
             sys.exit(0)
 
         try:
             data = get_market_data()
             if data:
-                o, c, v, avg_v, is_os, is_ob = data
+                o, c, v, avg_v = data['o'], data['c'], data['v'], data['avg_v']
                 now_min = time.strftime("%H:%M")
                 
                 # 偵測邏輯：成交量翻倍觸發
@@ -88,25 +100,31 @@ def main():
                     
                     # 邏輯 A：陰線吃貨 (陰線大買)
                     if c < o:
-                        extra = "\n📊 **額外告知：目前賣超**" if is_os else ""
-                        alert_msg = f"⚠️ **Gate.io 異常大買**\n標的: `{SYMBOL}`\n型態: `陰線大買` (1M)\n成交量: `{v:.1f}` (均: `{avg_v:.1f}`){extra}"
+                        extra_mml = "\n📊 **額外告知：目前賣超**" if data['is_os'] else ""
+                        alert_msg = (f"⚠️ **Gate.io 異常大買**\n"
+                                     f"標的: `{SYMBOL}`\n"
+                                     f"型態: `陰線大買` (1M)\n"
+                                     f"成交量: `{v:.1f}` (均: `{avg_v:.1f}`)\n"
+                                     f"主動買進佔比: `{data['buy_pct']:.1f}%`{extra_mml}")
                     
                     # 邏輯 B：陽線出逃 (陽線大賣)
                     elif c > o:
-                        extra = "\n📊 **額外告知：目前買超**" if is_ob else ""
-                        alert_msg = f"🚨 **Gate.io 異常大賣**\n標的: `{SYMBOL}`\n型態: `陽線大賣` (1M)\n成交量: `{v:.1f}` (均: `{avg_v:.1f}`){extra}"
+                        extra_mml = "\n📊 **額外告知：目前買超**" if data['is_ob'] else ""
+                        alert_msg = (f"🚨 **Gate.io 異常大賣**\n"
+                                     f"標的: `{SYMBOL}`\n"
+                                     f"型態: `陽線大賣` (1M)\n"
+                                     f"成交量: `{v:.1f}` (均: `{avg_v:.1f}`)\n"
+                                     f"主動出逃佔比: `{data['sell_pct']:.1f}%`{extra_mml}")
                     
                     if alert_msg:
                         send_tg(alert_msg)
                         last_min_processed = now_min
             else:
-                log("暫無回傳數據，等待下一次隨機輪詢...")
+                log("等待數據回傳...")
         except Exception as e:
-            log(f"主程序崩潰錯誤: {e}")
+            log(f"主程序錯誤: {e}")
         
-        wait_time = random.randint(5, 15)
-        log(f"休眠 {wait_time} 秒...")
-        time.sleep(wait_time)
+        time.sleep(random.randint(5, 15))
 
 if __name__ == "__main__":
     main()
