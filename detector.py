@@ -16,7 +16,9 @@ MAX_RUN_TIME = 18000 # 5 小時
 # 讀取 Secrets 環境變數
 TG_TOKEN = str(os.environ.get("TG_TOKEN", "")).strip()
 TG_CHAT_ID = str(os.environ.get("TG_CHAT_ID", "")).strip()
-SYMBOL = "DUSK/USDT"
+
+# 同時搜索兩個標的
+SYMBOLS = ["DUSK/USDT", "RIVER/USDT"]
 VOL_THRESHOLD = 2.0 # 成交量翻倍門檻
 
 # MML 莫里數學參數
@@ -32,14 +34,13 @@ def send_tg(msg):
     except Exception as e:
         log(f"TG 發送異常: {e}")
 
-def get_market_data():
-    """獲取數據邏輯：K線 + 主動買賣分析 + MML 位階"""
-    ex = ccxt.gateio({'enableRateLimit': True, 'timeout': 15000})
+def get_market_data(ex, symbol):
+    """獲取特定幣種數據：K線 + 主動買賣分析 + MML 位階"""
     try:
-        # 1. 獲取 K 線 (原本功能 + MML 數據需求)
-        ohlcv = ex.fetch_ohlcv(SYMBOL, timeframe='1m', limit=MML_LOOKBACK)
-        # 2. 獲取最新成交明細 (分析主動買賣比)
-        trades = ex.fetch_trades(SYMBOL, limit=80)
+        # 1. 獲取 K 線
+        ohlcv = ex.fetch_ohlcv(symbol, timeframe='1m', limit=MML_LOOKBACK)
+        # 2. 獲取最新成交明細
+        trades = ex.fetch_trades(symbol, limit=80)
         
         if ohlcv and len(ohlcv) >= 6:
             curr = ohlcv[-1]   
@@ -65,23 +66,24 @@ def get_market_data():
             buy_pct = (buy_v / total_trade_v * 100) if total_trade_v > 0 else 0
             sell_pct = (sell_v / total_trade_v * 100) if total_trade_v > 0 else 0
             
-            log(f"Gate 更新 | 價: {c} | 買比: {buy_pct:.1f}% | MML: {oscillator:.2f}")
+            log(f"Gate 更新 | {symbol} | 價: {c} | 買比: {buy_pct:.1f}% | MML: {oscillator:.2f}")
             return {
-                'o': o, 'c': c, 'v': v, 'avg_v': avg_v,
+                'symbol': symbol, 'o': o, 'c': c, 'v': v, 'avg_v': avg_v,
                 'is_os': is_os, 'is_ob': is_ob,
                 'buy_pct': buy_pct, 'sell_pct': sell_pct
             }
-            
     except Exception as e:
-        log(f"數據採集異常: {str(e)[:50]}")
+        log(f"{symbol} 數據採集異常: {str(e)[:50]}")
     return None
 
 def main():
-    log("=== Radar_System_2026 高頻掃描版啟動 ===")
+    log("=== Radar_System_2026 雙標的高頻掃描啟動 ===")
     
-    send_tg(f"🚀 **Radar 系統實戰啟動**\n數據源：`Gate.io` (CCXT)\n掃描頻率：`5-10s`\n監控：`主動買賣比% + MML 額外告知`")
+    send_tg(f"🚀 **Radar 雙向系統實戰啟動**\n標的：`{', '.join(SYMBOLS)}`\n頻率：`5-10s`\n狀態：`背離 + MML 雙重監控中`")
 
-    last_min_processed = ""
+    # 紀錄每個幣種最後處理的分鐘，避免同一分鐘重複報警
+    last_min_processed = {symbol: "" for symbol in SYMBOLS}
+    ex = ccxt.gateio({'enableRateLimit': True, 'timeout': 15000})
     
     while True:
         # 安全退場機制 (5 小時續命)
@@ -89,45 +91,47 @@ def main():
             log("[安全機制] 5小時運行結束，準備重啟...")
             sys.exit(0)
 
-        try:
-            data = get_market_data()
-            if data:
-                o, c, v, avg_v = data['o'], data['c'], data['v'], data['avg_v']
-                now_min = time.strftime("%H:%M")
+        for symbol in SYMBOLS:
+            try:
+                data = get_market_data(ex, symbol)
+                if data:
+                    o, c, v, avg_v = data['o'], data['c'], data['v'], data['avg_v']
+                    now_min = time.strftime("%H:%M")
+                    
+                    # 偵測邏輯：成交量翻倍觸發
+                    if now_min != last_min_processed[symbol] and v > (avg_v * VOL_THRESHOLD):
+                        alert_msg = ""
+                        
+                        # 邏輯 A：陰線吃貨
+                        if c < o:
+                            extra_mml = "\n📊 **額外告知：目前賣超**" if data['is_os'] else ""
+                            alert_msg = (f"⚠️ **Gate.io 異常大買**\n"
+                                         f"標的: `{symbol}`\n"
+                                         f"型態: `陰線大買` (1M)\n"
+                                         f"成交量: `{v:.1f}` (均: `{avg_v:.1f}`)\n"
+                                         f"主動買進佔比: `{data['buy_pct']:.1f}%`{extra_mml}")
+                        
+                        # 邏輯 B：陽線出逃
+                        elif c > o:
+                            extra_mml = "\n📊 **額外告知：目前買超**" if data['is_ob'] else ""
+                            alert_msg = (f"🚨 **Gate.io 異常大賣**\n"
+                                         f"標的: `{symbol}`\n"
+                                         f"型態: `陽線大賣` (1M)\n"
+                                         f"成交量: `{v:.1f}` (均: `{avg_v:.1f}`)\n"
+                                         f"主動出逃佔比: `{data['sell_pct']:.1f}%`{extra_mml}")
+                        
+                        if alert_msg:
+                            send_tg(alert_msg)
+                            last_min_processed[symbol] = now_min
                 
-                # 偵測邏輯：成交量翻倍觸發 (保留原有功能)
-                if now_min != last_min_processed and v > (avg_v * VOL_THRESHOLD):
-                    alert_msg = ""
-                    
-                    # 邏輯 A：陰線吃貨 (原本功能 + 主動比 + MML 告知)
-                    if c < o:
-                        extra_mml = "\n📊 **額外告知：目前賣超**" if data['is_os'] else ""
-                        alert_msg = (f"⚠️ **Gate.io 異常大買**\n"
-                                     f"標的: `{SYMBOL}`\n"
-                                     f"型態: `陰線大買` (1M)\n"
-                                     f"成交量: `{v:.1f}` (均: `{avg_v:.1f}`)\n"
-                                     f"主動買進佔比: `{data['buy_pct']:.1f}%`{extra_mml}")
-                    
-                    # 邏輯 B：陽線出逃 (原本功能 + 主動比 + MML 告知)
-                    elif c > o:
-                        extra_mml = "\n📊 **額外告知：目前買超**" if data['is_ob'] else ""
-                        alert_msg = (f"🚨 **Gate.io 異常大賣**\n"
-                                     f"標的: `{SYMBOL}`\n"
-                                     f"型態: `陽線大賣` (1M)\n"
-                                     f"成交量: `{v:.1f}` (均: `{avg_v:.1f}`)\n"
-                                     f"主動出逃佔比: `{data['sell_pct']:.1f}%`{extra_mml}")
-                    
-                    if alert_msg:
-                        send_tg(alert_msg)
-                        last_min_processed = now_min
-            else:
-                log("等待數據回傳...")
-        except Exception as e:
-            log(f"主程序錯誤: {e}")
+                # 幣種間稍微停頓，避免請求過快
+                time.sleep(1)
+            except Exception as e:
+                log(f"{symbol} 循環錯誤: {e}")
         
-        # 修正：隨機休眠改為 5-10 秒
+        # 修正：掃描完一輪後休眠 5-10 秒
         wait_time = random.randint(5, 10)
-        log(f"休眠 {wait_time} 秒後進行下次掃描...")
+        log(f"一輪掃描結束，休眠 {wait_time} 秒...")
         time.sleep(wait_time)
 
 if __name__ == "__main__":
