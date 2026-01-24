@@ -33,12 +33,12 @@ def send_tg(msg):
         log(f"TG 發送異常: {e}")
 
 def get_market_data():
-    """獲取 K 線、主動買賣比與 MML 空間位階"""
+    """獲取數據邏輯：K線 + 主動買賣分析 + MML 位階"""
     ex = ccxt.gateio({'enableRateLimit': True, 'timeout': 15000})
     try:
-        # 1. 獲取 K 線 (原本功能 + MML)
+        # 1. 獲取 K 線 (原本功能 + MML 數據需求)
         ohlcv = ex.fetch_ohlcv(SYMBOL, timeframe='1m', limit=MML_LOOKBACK)
-        # 2. 獲取最新成交明細 (分析主動買賣單)
+        # 2. 獲取最新成交明細 (分析主動買賣比)
         trades = ex.fetch_trades(SYMBOL, limit=80)
         
         if ohlcv and len(ohlcv) >= 6:
@@ -47,15 +47,15 @@ def get_market_data():
             o, c, v = float(curr[1]), float(curr[4]), float(curr[5])
             avg_v = sum(float(x[5]) for x in hist) / len(hist)
             
-            # --- 莫里數學判定 ---
+            # --- 莫里數學位階判定 ---
             highs = [float(x[2]) for x in ohlcv]
             lows = [float(x[3]) for x in ohlcv]
             hi, lo = max(highs), min(lows)
             r = hi - lo
             midline = lo + r * 0.5
             oscillator = (c - midline) / (r / 2) if r != 0 else 0
-            is_os = oscillator < -MML_MULT * 6  # 賣超
-            is_ob = oscillator > MML_MULT * 6   # 買超
+            is_os = oscillator < -MML_MULT * 6  # 賣超區
+            is_ob = oscillator > MML_MULT * 6   # 買超區
             
             # --- 主動買賣比計算 ---
             buy_v = sum(float(t['amount']) for t in trades if t['side'] == 'buy')
@@ -77,15 +77,16 @@ def get_market_data():
     return None
 
 def main():
-    log("=== Radar_System_2026 背離比例版啟動 ===")
+    log("=== Radar_System_2026 高頻掃描版啟動 ===")
     
-    send_tg(f"🚀 **Radar 系統實戰啟動**\n數據源：`Gate.io` (CCXT)\n監控：`主動買賣比% + MML 位階`")
+    send_tg(f"🚀 **Radar 系統實戰啟動**\n數據源：`Gate.io` (CCXT)\n掃描頻率：`5-10s`\n監控：`主動買賣比% + MML 額外告知`")
 
     last_min_processed = ""
     
     while True:
+        # 安全退場機制 (5 小時續命)
         if time.time() - START_TIME > MAX_RUN_TIME:
-            log("[安全機制] 5小時續命重啟")
+            log("[安全機制] 5小時運行結束，準備重啟...")
             sys.exit(0)
 
         try:
@@ -94,11 +95,11 @@ def main():
                 o, c, v, avg_v = data['o'], data['c'], data['v'], data['avg_v']
                 now_min = time.strftime("%H:%M")
                 
-                # 偵測邏輯：成交量翻倍觸發
+                # 偵測邏輯：成交量翻倍觸發 (保留原有功能)
                 if now_min != last_min_processed and v > (avg_v * VOL_THRESHOLD):
                     alert_msg = ""
                     
-                    # 邏輯 A：陰線吃貨 (陰線大買)
+                    # 邏輯 A：陰線吃貨 (原本功能 + 主動比 + MML 告知)
                     if c < o:
                         extra_mml = "\n📊 **額外告知：目前賣超**" if data['is_os'] else ""
                         alert_msg = (f"⚠️ **Gate.io 異常大買**\n"
@@ -107,7 +108,7 @@ def main():
                                      f"成交量: `{v:.1f}` (均: `{avg_v:.1f}`)\n"
                                      f"主動買進佔比: `{data['buy_pct']:.1f}%`{extra_mml}")
                     
-                    # 邏輯 B：陽線出逃 (陽線大賣)
+                    # 邏輯 B：陽線出逃 (原本功能 + 主動比 + MML 告知)
                     elif c > o:
                         extra_mml = "\n📊 **額外告知：目前買超**" if data['is_ob'] else ""
                         alert_msg = (f"🚨 **Gate.io 異常大賣**\n"
@@ -124,7 +125,10 @@ def main():
         except Exception as e:
             log(f"主程序錯誤: {e}")
         
-        time.sleep(random.randint(5, 15))
+        # 修正：隨機休眠改為 5-10 秒
+        wait_time = random.randint(5, 10)
+        log(f"休眠 {wait_time} 秒後進行下次掃描...")
+        time.sleep(wait_time)
 
 if __name__ == "__main__":
     main()
