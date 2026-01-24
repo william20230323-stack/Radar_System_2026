@@ -1,10 +1,9 @@
 import os
 import time
-import requests
-import hmac
-import hashlib
+import ccxt
 import random
 import sys
+import requests
 from datetime import datetime, timedelta, timezone
 
 # ==========================================
@@ -18,70 +17,73 @@ def log(msg):
     print(f"[{now_tw}] {msg}", flush=True)
 
 START_TIME = time.time()
-MAX_RUN_TIME = 18000  # 5 小時
+MAX_RUN_TIME = 18000 
 
 TG_TOKEN = str(os.environ.get("TG_TOKEN", "")).strip()
 TG_CHAT_ID = str(os.environ.get("TG_CHAT_ID", "")).strip()
 BINANCE_API_KEY = os.getenv('BINANCE_API_KEY')
 BINANCE_API_SECRET = os.getenv('BINANCE_API_SECRET')
 
-SYMBOL = "DUSKUSDT" 
+SYMBOL = "DUSK/USDT" # CCXT 格式帶斜槓
 VOL_THRESHOLD = 2.0 
 
 class BinanceRadar:
     def __init__(self):
-        # 使用國際站 API 底層地址
-        self.base_url = "https://fapi.binance.com"
-        self.api_key = BINANCE_API_KEY
-        self.api_secret = BINANCE_API_SECRET
+        # 回歸你最開始使用的 CCXT 初始化方式，這對 GitHub Actions 環境最穩定
+        self.exchange = ccxt.binance({
+            'apiKey': BINANCE_API_KEY,
+            'secret': BINANCE_API_SECRET,
+            'enableRateLimit': True,
+            'options': {'defaultType': 'future'} # 鎖定合約市場
+        })
 
     def send_tg(self, msg):
         if not TG_TOKEN or not TG_CHAT_ID: return
         url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
         try:
-            requests.post(url, json={"chat_id": TG_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=5)
+            requests.post(url, json={"chat_id": TG_CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=10)
         except:
-            log("TG 發送超時")
+            pass
 
-    def get_binance_data(self):
-        """強化連線穩定性，避免在 Execute Radar 階段卡死"""
+    def get_whale_ratio(self, symbol):
+        """抓取巨鯨多空比 (CCXT 不支援此私有數據，改用直連 API)"""
         try:
-            # 1. 獲取行情 (1m K線) - 加入 5 秒強制超時
-            kl_path = f"{self.base_url}/fapi/v1/klines"
-            kl_params = {"symbol": SYMBOL, "interval": "1m", "limit": 10}
-            kl_res = requests.get(kl_path, params=kl_params, timeout=5).json()
+            # 將 DUSK/USDT 轉為 DUSKUSDT
+            clean_symbol = symbol.replace("/", "")
+            url = f"https://fapi.binance.com/futures/data/topLongShortAccountRatio?symbol={clean_symbol}&period=5m&limit=1"
+            res = requests.get(url, timeout=5).json()
+            if res and len(res) > 0:
+                return res[0].get('longShortRatio', 'N/A')
+        except:
+            return "N/A"
+        return "N/A"
 
-            # 2. 獲取巨鯨數據 - 加入 5 秒強制超時
-            whale_path = f"{self.base_url}/futures/data/topLongShortAccountRatio"
-            whale_params = {"symbol": SYMBOL, "period": "5m", "limit": 1}
-            whale_res = requests.get(whale_path, params=whale_params, timeout=5).json()
-
-            if isinstance(kl_res, list) and len(kl_res) >= 7:
-                curr = kl_res[-1]
-                hist = kl_res[-7:-1]
+    def get_market_data(self):
+        """使用 CCXT 獲取 K 線數據 (最穩定的搜尋源)"""
+        try:
+            # 獲取 1m K線
+            ohlcv = self.exchange.fetch_ohlcv(SYMBOL, timeframe='1m', limit=10)
+            if ohlcv and len(ohlcv) >= 7:
+                curr = ohlcv[-1]
+                hist = ohlcv[-7:-1]
                 o, c, v = float(curr[1]), float(curr[4]), float(curr[5])
                 avg_v = sum(float(x[5]) for x in hist) / len(hist)
                 
-                whale_ratio = "N/A"
-                if whale_res and len(whale_res) > 0:
-                    whale_ratio = whale_res[0].get('longShortRatio', 'N/A')
-
-                log(f"⚡ 掃描中 | 價格: {c} | 巨鯨比: {whale_ratio} | 量: {v:.1} | 均: {avg_v:.1}")
+                # 同步獲取巨鯨比
+                whale_ratio = self.get_whale_ratio(SYMBOL)
+                
+                log(f"幣安連線 | 價: {c} | 巨鯨: {whale_ratio} | 量: {v:.1f} | 均: {avg_v:.1f}")
                 return o, c, v, avg_v, whale_ratio
         except Exception as e:
-            log(f"⚠️ 數據讀取中斷: {str(e)[:30]}... 正在重試")
+            log(f"⚠️ 幣安連線異常: {str(e)[:50]}")
         return None
 
 def main():
     radar = BinanceRadar()
-    log(f"=== Radar_System_2026 啟動 | 目標: {SYMBOL} ===")
+    log(f"=== Radar_System_2026 穩定連線版啟動 | 目標: {SYMBOL} ===")
     
-    # 測試保險箱金鑰
-    if not BINANCE_API_KEY:
-        log("❌ 錯誤：找不到 API 金鑰，請檢查 GitHub Secrets")
-        return
-
-    radar.send_tg(f"🚀 **Radar 系統已進入偵察循環**\n目標：`{SYMBOL}`")
+    radar.send_tg(f"🚀 **Radar 系統已切換 CCXT 穩定源**\n目標：`{SYMBOL}`")
+    
     last_min_processed = ""
     tw_tz = timezone(timedelta(hours=8))
     
@@ -90,18 +92,18 @@ def main():
             log("[安全機制] 5小時續命觸發")
             sys.exit(0)
 
-        data = radar.get_binance_data()
+        data = radar.get_market_data()
         if data:
             o, c, v, avg_v, whale_ratio = data
             now_min = datetime.now(tw_tz).strftime("%H:%M")
             
             if now_min != last_min_processed and v > (avg_v * VOL_THRESHOLD):
                 direction = "多頭" if c > o else "空頭"
-                msg = f"🚨 **DUSK 量能警報**\n方向: `{direction}`\n巨鯨比: `{whale_ratio}`"
+                msg = f"🚨 **DUSK 量能警報**\n方向: `{direction}`\n巨鯨比: `{whale_ratio}`\n時間: `{datetime.now(tw_tz).strftime('%H:%M:%S')}`"
                 radar.send_tg(msg)
                 last_min_processed = now_min
         
-        # 保持流暢的隨機間隔
+        # 保持隨機間隔 5-15 秒
         time.sleep(random.randint(5, 15))
 
 if __name__ == "__main__":
