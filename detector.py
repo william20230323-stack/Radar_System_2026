@@ -17,11 +17,11 @@ MAX_RUN_TIME = 18000 # 5 小時
 TG_TOKEN = str(os.environ.get("TG_TOKEN", "")).strip()
 TG_CHAT_ID = str(os.environ.get("TG_CHAT_ID", "")).strip()
 
-# 同時搜索兩個標的
+# 同時監控 DUSK 與 RIVER
 SYMBOLS = ["DUSK/USDT", "RIVER/USDT"]
 VOL_THRESHOLD = 2.0 # 成交量翻倍門檻
 
-# MML 莫里數學參數 (1/8 = 0.125)
+# MML 莫里數學參數
 MML_LOOKBACK = 100 
 MML_MULT = 0.125
 
@@ -37,9 +37,9 @@ def send_tg(msg):
 def get_market_data(ex, symbol):
     """獲取數據邏輯：K線 + 主動買賣分析 + MML 位階"""
     try:
-        # 1. 獲取 K 線 (回顧 100 根用於 MML)
+        # 1. 獲取 K 線
         ohlcv = ex.fetch_ohlcv(symbol, timeframe='1m', limit=MML_LOOKBACK)
-        # 2. 獲取最新成交明細 (分析主動買賣比)
+        # 2. 獲取最新成交明細
         trades = ex.fetch_trades(symbol, limit=80)
         
         if ohlcv and len(ohlcv) >= 6:
@@ -55,8 +55,8 @@ def get_market_data(ex, symbol):
             r = hi - lo
             midline = lo + r * 0.5
             oscillator = (c - midline) / (r / 2) if r != 0 else 0
-            is_os = oscillator < -MML_MULT * 6  # 賣超區 (低於 -0.75)
-            is_ob = oscillator > MML_MULT * 6   # 買超區 (高於 0.75)
+            is_os = oscillator < -MML_MULT * 6  # 賣超
+            is_ob = oscillator > MML_MULT * 6   # 買超
             
             # --- 主動買賣比計算 ---
             buy_v = sum(float(t['amount']) for t in trades if t['side'] == 'buy')
@@ -77,9 +77,9 @@ def get_market_data(ex, symbol):
     return None
 
 def main():
-    log("=== Radar_System_2026 高靈敏版啟動 ===")
+    log("=== Radar_System_2026 雙標高感版啟動 ===")
     
-    send_tg(f"🚀 **Radar 雙向系統實戰啟動**\n標的：`{', '.join(SYMBOLS)}`\n門檻：`主動比 55%` + `MML 位階`")
+    send_tg(f"🚀 **Radar 雙向系統實戰啟動**\n標的：`{', '.join(SYMBOLS)}`\n門檻：`主動比 45%`\n頻率：`隨機 3-8s`")
 
     last_min_processed = {symbol: "" for symbol in SYMBOLS}
     ex = ccxt.gateio({'enableRateLimit': True, 'timeout': 15000})
@@ -87,6 +87,7 @@ def main():
     while True:
         # 安全退場機制 (5 小時續命)
         if time.time() - START_TIME > MAX_RUN_TIME:
+            log("[安全機制] 運行已達 5 小時，主動結束以觸發重啟...")
             sys.exit(0)
 
         for symbol in SYMBOLS:
@@ -107,8 +108,8 @@ def main():
                                      f"主動買進比例: `{data['buy_pct']:.1f}%`"
                                      f"{extra}")
                     
-                    # 【核心邏輯 2】：陽線 + 主動賣單達 55% = 出逃警報
-                    elif c > o and data['sell_pct'] >= 55:
+                    # 【核心邏輯 2】：陽線 + 主動賣單達 45% = 出逃警報
+                    elif c > o and data['sell_pct'] >= 45:
                         extra = "\n📊 **目前買超**" if data['is_ob'] else ""
                         alert_msg = (f"🟠 **陽線時主動賣單出逃警報**\n"
                                      f"標的: `{symbol}`\n"
@@ -119,11 +120,13 @@ def main():
                         send_tg(alert_msg)
                         last_min_processed[symbol] = now_min
             
-            # 幣種掃描間隔，避免交易所頻率限制
-            time.sleep(1)
+            # 幣種掃描微小間隔
+            time.sleep(0.5)
         
-        # 5-10 秒隨機休眠
-        time.sleep(random.randint(5, 10))
+        # 修正：採集時間改為隨機 3-8 秒
+        wait_time = random.randint(3, 8)
+        log(f"一輪掃描結束，休眠 {wait_time} 秒...")
+        time.sleep(wait_time)
 
 if __name__ == "__main__":
     main()
