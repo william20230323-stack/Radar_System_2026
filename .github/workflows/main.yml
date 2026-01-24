@@ -3,7 +3,7 @@ name: Radar_Runner
 on:
   schedule:
     - cron: '*/10 * * * *' # 每 10 分鐘自動巡檢，若沒在跑就啟動
-  workflow_dispatch:
+  workflow_dispatch:      # 支援網頁手動開啟
 
 jobs:
   run_radar:
@@ -22,11 +22,18 @@ jobs:
           python-version: '3.10'
 
       - name: Install Dependencies
+        # 雖然新版 detector 棄用 ccxt 降低延遲，但保留以相容舊腳本
         run: pip install requests ccxt
 
       - name: Execute Radar
         env:
+          # --- 基礎通訊保險箱 ---
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        # -u 參數至關重要，保證日誌不延遲
+          
+          # --- 幣安加密 API 保險箱 (新增) ---
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_API_SECRET: ${{ secrets.BINANCE_API_SECRET }}
+          
+        # -u 參數至關重要，保證台灣時間日誌不延遲
         run: python -u detector.py
