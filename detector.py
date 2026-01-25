@@ -37,9 +37,7 @@ def send_tg(msg):
 def get_market_data(ex, symbol):
     """獲取數據邏輯：K線 + 主動買賣分析 + MML 位階"""
     try:
-        # 1. 獲取 K 線
         ohlcv = ex.fetch_ohlcv(symbol, timeframe='1m', limit=MML_LOOKBACK)
-        # 2. 獲取最新成交明細
         trades = ex.fetch_trades(symbol, limit=80)
         
         if ohlcv and len(ohlcv) >= 6:
@@ -48,17 +46,15 @@ def get_market_data(ex, symbol):
             o, c, v = float(curr[1]), float(curr[4]), float(curr[5])
             avg_v = sum(float(x[5]) for x in hist) / len(hist)
             
-            # --- 莫里數學位階判定 ---
             highs = [float(x[2]) for x in ohlcv]
             lows = [float(x[3]) for x in ohlcv]
             hi, lo = max(highs), min(lows)
             r = hi - lo
             midline = lo + r * 0.5
             oscillator = (c - midline) / (r / 2) if r != 0 else 0
-            is_os = oscillator < -MML_MULT * 6  # 賣超
-            is_ob = oscillator > MML_MULT * 6   # 買超
+            is_os = oscillator < -MML_MULT * 6
+            is_ob = oscillator > MML_MULT * 6
             
-            # --- 主動買賣比計算 ---
             buy_v = sum(float(t['amount']) for t in trades if t['side'] == 'buy')
             sell_v = sum(float(t['amount']) for t in trades if t['side'] == 'sell')
             total_trade_v = buy_v + sell_v
@@ -66,7 +62,8 @@ def get_market_data(ex, symbol):
             buy_pct = (buy_v / total_trade_v * 100) if total_trade_v > 0 else 0
             sell_pct = (sell_v / total_trade_v * 100) if total_trade_v > 0 else 0
             
-            log(f"Gate 更新 | {symbol} | 價: {c} | 買比: {buy_pct:.1f}% | MML: {oscillator:.2f}")
+            # 這裡調整為同時顯示買賣比
+            log(f"Gate 更新 | {symbol} | 價: {c} | 買: {buy_pct:.1f}% 賣: {sell_pct:.1f}% | MML: {oscillator:.2f}")
             return {
                 'symbol': symbol, 'o': o, 'c': c, 'v': v, 'avg_v': avg_v,
                 'is_os': is_os, 'is_ob': is_ob,
@@ -79,17 +76,13 @@ def get_market_data(ex, symbol):
 
 def main():
     log("=== Radar_System_2026 DUSK 雙向強化版啟動 ===")
-    
-    send_tg(f"🚀 **Radar 雙向系統實戰啟動**\n標的：`{', '.join(SYMBOLS)}`\n門檻：`主動比 45%`\n監控：`MML 零軸雙向反轉預警`")
+    send_tg(f"🚀 **Radar 雙向系統實戰啟動**\n標的：`{', '.join(SYMBOLS)}`\n監控：`買賣雙向比例 & MML 零軸反轉`")
 
     last_min_processed = {symbol: "" for symbol in SYMBOLS}
-    # 用於追蹤 MML 狀態 (0 代表負或零，1 代表正)
     prev_mml_state = {symbol: 0 for symbol in SYMBOLS} 
-    
     ex = ccxt.gateio({'enableRateLimit': True, 'timeout': 15000})
     
     while True:
-        # 安全退場機制 (5 小時續命)
         if time.time() - START_TIME > MAX_RUN_TIME:
             log("[安全機制] 運行已達 5 小時，主動結束以觸發重啟...")
             sys.exit(0)
@@ -101,47 +94,26 @@ def main():
                 buy_pct, sell_pct, mml = data['buy_pct'], data['sell_pct'], data['mml_val']
                 now_min = time.strftime("%H:%M")
                 
-                # --- 位階狀態判定 ---
                 current_mml_state = 1 if mml > 0 else 0
                 
-                # 【新增功能】：賣比 60% 以上 + MML 由正轉負 (反轉向下)
+                # 反轉向下預警 (賣比 > 60% + 由正轉負)
                 if sell_pct >= 60 and prev_mml_state[symbol] == 1 and current_mml_state == 0:
-                    down_msg = (f"📉 **反轉向下預警**\n"
-                                f"標的: `{symbol}`\n"
-                                f"狀態: `MML 由正轉負 ({mml:.2f})`\n"
-                                f"賣比: `{sell_pct:.1f}%` (動能轉弱)")
+                    down_msg = (f"📉 **反轉向下預警**\n標的: `{symbol}`\n狀態: `MML 由正轉負 ({mml:.2f})`\n賣出比例: `{sell_pct:.1f}%`")
                     send_tg(down_msg)
                 
-                # 【現有功能】：買比 60% 以上 + MML 由負轉正 (反轉向上)
+                # 反轉向上預警 (買比 > 60% + 由負轉正)
                 elif buy_pct >= 60 and prev_mml_state[symbol] == 0 and current_mml_state == 1:
-                    up_msg = (f"🔥 **反轉向上預警**\n"
-                              f"標的: `{symbol}`\n"
-                              f"狀態: `MML 由負轉正 ({mml:.2f})`\n"
-                              f"買比: `{buy_pct:.1f}%` (強勢進場)")
+                    up_msg = (f"🔥 **反轉向上預警**\n標的: `{symbol}`\n狀態: `MML 由負轉正 ({mml:.2f})`\n買入比例: `{buy_pct:.1f}%`")
                     send_tg(up_msg)
                 
-                # 更新位階狀態供下一輪比對
                 prev_mml_state[symbol] = current_mml_state
 
-                # --- 原始邏輯：成交量翻倍偵測 ---
                 if now_min != last_min_processed[symbol] and v > (avg_v * VOL_THRESHOLD):
                     alert_msg = ""
-                    
-                    # 【核心邏輯 1】：陰線 + 主動買單達 45% = 吃貨警報
                     if c < o and buy_pct >= 45:
-                        extra = "\n📊 **目前賣超**" if data['is_os'] else ""
-                        alert_msg = (f"🟡 **當k線是陰線時有大量主動買單進場警報**\n"
-                                     f"標的: `{symbol}`\n"
-                                     f"主動買進比例: `{buy_pct:.1f}%`"
-                                     f"{extra}")
-                    
-                    # 【核心邏輯 2】：陽線 + 主動賣單達 45% = 出逃警報
+                        alert_msg = (f"🟡 **陰線主動買單吃貨警報**\n標的: `{symbol}`\n買進比例: `{buy_pct:.1f}%`")
                     elif c > o and sell_pct >= 45:
-                        extra = "\n📊 **目前買超**" if data['is_ob'] else ""
-                        alert_msg = (f"🟠 **陽線時主動賣單出逃警報**\n"
-                                     f"標的: `{symbol}`\n"
-                                     f"主動出逃比例: `{sell_pct:.1f}%`"
-                                     f"{extra}")
+                        alert_msg = (f"🟠 **陽線主動賣單出逃警報**\n標的: `{symbol}`\n出逃比例: `{sell_pct:.1f}%`")
                     
                     if alert_msg:
                         send_tg(alert_msg)
