@@ -78,13 +78,13 @@ def get_market_data(ex, symbol):
     return None
 
 def main():
-    log("=== Radar_System_2026 DUSK 強化版啟動 ===")
+    log("=== Radar_System_2026 DUSK 雙向強化版啟動 ===")
     
-    send_tg(f"🚀 **Radar 雙向系統實戰啟動**\n標的：`{', '.join(SYMBOLS)}`\n門檻：`主動比 45%`\n新增：`反轉預警 (買比>60% & MML由負轉正)`")
+    send_tg(f"🚀 **Radar 雙向系統實戰啟動**\n標的：`{', '.join(SYMBOLS)}`\n門檻：`主動比 45%`\n監控：`MML 零軸雙向反轉預警`")
 
     last_min_processed = {symbol: "" for symbol in SYMBOLS}
-    # 用於追蹤 MML 是否由負轉正
-    prev_mml_state = {symbol: 0 for symbol in SYMBOLS} # 0 代表負或零，1 代表正
+    # 用於追蹤 MML 狀態 (0 代表負或零，1 代表正)
+    prev_mml_state = {symbol: 0 for symbol in SYMBOLS} 
     
     ex = ccxt.gateio({'enableRateLimit': True, 'timeout': 15000})
     
@@ -98,19 +98,29 @@ def main():
             data = get_market_data(ex, symbol)
             if data:
                 o, c, v, avg_v = data['o'], data['c'], data['v'], data['avg_v']
-                buy_pct, mml = data['buy_pct'], data['mml_val']
+                buy_pct, sell_pct, mml = data['buy_pct'], data['sell_pct'], data['mml_val']
                 now_min = time.strftime("%H:%M")
                 
-                # --- 新增功能：買比 60% 以上 + MML 由負轉正提醒 ---
+                # --- 位階狀態判定 ---
                 current_mml_state = 1 if mml > 0 else 0
-                if buy_pct >= 60 and prev_mml_state[symbol] == 0 and current_mml_state == 1:
-                    reverse_msg = (f"🔥 **反轉向上預警**\n"
-                                   f"標的: `{symbol}`\n"
-                                   f"狀態: `MML 由負轉正 ({mml:.2f})`\n"
-                                   f"買比: `{buy_pct:.1f}%` (強勢進場)")
-                    send_tg(reverse_msg)
                 
-                # 更新位階狀態
+                # 【新增功能】：賣比 60% 以上 + MML 由正轉負 (反轉向下)
+                if sell_pct >= 60 and prev_mml_state[symbol] == 1 and current_mml_state == 0:
+                    down_msg = (f"📉 **反轉向下預警**\n"
+                                f"標的: `{symbol}`\n"
+                                f"狀態: `MML 由正轉負 ({mml:.2f})`\n"
+                                f"賣比: `{sell_pct:.1f}%` (動能轉弱)")
+                    send_tg(down_msg)
+                
+                # 【現有功能】：買比 60% 以上 + MML 由負轉正 (反轉向上)
+                elif buy_pct >= 60 and prev_mml_state[symbol] == 0 and current_mml_state == 1:
+                    up_msg = (f"🔥 **反轉向上預警**\n"
+                              f"標的: `{symbol}`\n"
+                              f"狀態: `MML 由負轉正 ({mml:.2f})`\n"
+                              f"買比: `{buy_pct:.1f}%` (強勢進場)")
+                    send_tg(up_msg)
+                
+                # 更新位階狀態供下一輪比對
                 prev_mml_state[symbol] = current_mml_state
 
                 # --- 原始邏輯：成交量翻倍偵測 ---
@@ -126,21 +136,19 @@ def main():
                                      f"{extra}")
                     
                     # 【核心邏輯 2】：陽線 + 主動賣單達 45% = 出逃警報
-                    elif c > o and data['sell_pct'] >= 45:
+                    elif c > o and sell_pct >= 45:
                         extra = "\n📊 **目前買超**" if data['is_ob'] else ""
                         alert_msg = (f"🟠 **陽線時主動賣單出逃警報**\n"
                                      f"標的: `{symbol}`\n"
-                                     f"主動出逃比例: `{data['sell_pct']:.1f}%`"
+                                     f"主動出逃比例: `{sell_pct:.1f}%`"
                                      f"{extra}")
                     
                     if alert_msg:
                         send_tg(alert_msg)
                         last_min_processed[symbol] = now_min
             
-            # 幣種掃描微小間隔
             time.sleep(0.5)
         
-        # 修正：採集時間改為隨機 3-8 秒
         wait_time = random.randint(3, 8)
         log(f"一輪掃描結束，休眠 {wait_time} 秒...")
         time.sleep(wait_time)
