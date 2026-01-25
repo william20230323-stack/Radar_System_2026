@@ -70,18 +70,22 @@ def get_market_data(ex, symbol):
             return {
                 'symbol': symbol, 'o': o, 'c': c, 'v': v, 'avg_v': avg_v,
                 'is_os': is_os, 'is_ob': is_ob,
-                'buy_pct': buy_pct, 'sell_pct': sell_pct
+                'buy_pct': buy_pct, 'sell_pct': sell_pct,
+                'mml_val': oscillator
             }
     except Exception as e:
         log(f"{symbol} 數據採集異常: {str(e)[:50]}")
     return None
 
 def main():
-    log("=== Radar_System_2026 DUSK 專屬版啟動 ===")
+    log("=== Radar_System_2026 DUSK 強化版啟動 ===")
     
-    send_tg(f"🚀 **Radar 雙向系統實戰啟動**\n標的：`{', '.join(SYMBOLS)}`\n門檻：`主動比 45%`\n頻率：`隨機 3-8s`")
+    send_tg(f"🚀 **Radar 雙向系統實戰啟動**\n標的：`{', '.join(SYMBOLS)}`\n門檻：`主動比 45%`\n新增：`反轉預警 (買比>60% & MML由負轉正)`")
 
     last_min_processed = {symbol: "" for symbol in SYMBOLS}
+    # 用於追蹤 MML 是否由負轉正
+    prev_mml_state = {symbol: 0 for symbol in SYMBOLS} # 0 代表負或零，1 代表正
+    
     ex = ccxt.gateio({'enableRateLimit': True, 'timeout': 15000})
     
     while True:
@@ -94,18 +98,31 @@ def main():
             data = get_market_data(ex, symbol)
             if data:
                 o, c, v, avg_v = data['o'], data['c'], data['v'], data['avg_v']
+                buy_pct, mml = data['buy_pct'], data['mml_val']
                 now_min = time.strftime("%H:%M")
                 
-                # 成交量翻倍偵測
+                # --- 新增功能：買比 60% 以上 + MML 由負轉正提醒 ---
+                current_mml_state = 1 if mml > 0 else 0
+                if buy_pct >= 60 and prev_mml_state[symbol] == 0 and current_mml_state == 1:
+                    reverse_msg = (f"🔥 **反轉向上預警**\n"
+                                   f"標的: `{symbol}`\n"
+                                   f"狀態: `MML 由負轉正 ({mml:.2f})`\n"
+                                   f"買比: `{buy_pct:.1f}%` (強勢進場)")
+                    send_tg(reverse_msg)
+                
+                # 更新位階狀態
+                prev_mml_state[symbol] = current_mml_state
+
+                # --- 原始邏輯：成交量翻倍偵測 ---
                 if now_min != last_min_processed[symbol] and v > (avg_v * VOL_THRESHOLD):
                     alert_msg = ""
                     
                     # 【核心邏輯 1】：陰線 + 主動買單達 45% = 吃貨警報
-                    if c < o and data['buy_pct'] >= 45:
+                    if c < o and buy_pct >= 45:
                         extra = "\n📊 **目前賣超**" if data['is_os'] else ""
                         alert_msg = (f"🟡 **當k線是陰線時有大量主動買單進場警報**\n"
                                      f"標的: `{symbol}`\n"
-                                     f"主動買進比例: `{data['buy_pct']:.1f}%`"
+                                     f"主動買進比例: `{buy_pct:.1f}%`"
                                      f"{extra}")
                     
                     # 【核心邏輯 2】：陽線 + 主動賣單達 45% = 出逃警報
