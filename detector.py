@@ -17,8 +17,8 @@ MAX_RUN_TIME = 18000 # 5 小時
 TG_TOKEN = str(os.environ.get("TG_TOKEN", "")).strip()
 TG_CHAT_ID = str(os.environ.get("TG_CHAT_ID", "")).strip()
 
-# 同時監控 DUSK 與 RIVER
-SYMBOLS = ["DUSK/USDT", "RIVER/USDT"]
+# 僅監控 DUSK
+SYMBOLS = ["DUSK/USDT"]
 VOL_THRESHOLD = 2.0 # 成交量翻倍門檻
 
 # MML 莫里數學參數
@@ -77,7 +77,7 @@ def get_market_data(ex, symbol):
     return None
 
 def main():
-    log("=== Radar_System_2026 雙標高感版啟動 ===")
+    log("=== Radar_System_2026 DUSK 專屬版啟動 ===")
     
     send_tg(f"🚀 **Radar 雙向系統實戰啟動**\n標的：`{', '.join(SYMBOLS)}`\n門檻：`主動比 45%`\n頻率：`隨機 3-8s`")
 
